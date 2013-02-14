@@ -1,0 +1,67 @@
+<?php 
+
+/**
+ * @file
+ * Intstrux highwire module.
+ */
+
+ /**
+ * Implements hook_menu().
+ */
+function intstrux_highwire_menu() {
+  $items = array();
+  
+  $items['admin/config/content/highwire'] = array(
+    'title' => 'HighWire settings',
+    'description' => 'Configure HighWire integration, api keys',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('intstrux_highwire_admin_settings'),
+    'type' => MENU_NORMAL_ITEM,
+    'access arguments' => array('administer intstrux highwire settings'),
+    'file' => 'intstrux_highwire.admin.inc',
+  );
+  
+  return $items;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function intstrux_highwire_permission() {
+  return array(
+    'administer intstrux highwire settings' => array(
+      'title' => t('Administer HighWire'),
+    ),
+  );
+}
+
+/**
+ * Initializes the Brightcove Media API and returns an instance of the object.
+ *
+ * @param string $read_token
+ *   An optional read token instead of the stored one.
+ * @return BCMAPI
+ *   Instance of the Brightcove Media API or FALSE if fails to initialize.
+ */
+function intstrux_highwire_initialize($read_token = NULL) {
+
+  if (empty($read_token)) {
+    $read_token = variable_get('intstrux_highwire_api_key', '');
+  }
+  
+  if (empty($read_token)) {
+    drupal_set_message(t('Cannot initialize HighWire API. Contact site administrators.'), 'error');
+    watchdog('brightcove', 'Brightcove Read API keys not found, cannot initialize Brightcove MAPI SDK.', array(), WATCHDOG_ERROR);
+    return FALSE;
+  }
+  
+  return array('a.title.1 [id:34535]' => 'a.title.1 [id:34535]', 'a.title.2 [id:3334535]' => 'a.title.2 [id:3334535]');
+}
+
+
+
+
+
+
+
+

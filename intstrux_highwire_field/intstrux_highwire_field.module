@@ -1,0 +1,66 @@
+<?php
+
+/**
+ * @file
+ * Defines intstrux highwire field types.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function intstrux_highwire_field_menu() {
+  
+  $items = array();
+  
+  $items['highwire_field/autocomplete/%/%'] = array(
+    'title' => 'HighWire field autocomplete',
+    'page callback' => 'intstrux_highwire_field_autocomplete',
+    'page arguments' => array(3, 5),
+    'access callback' => 'intstrux_highwire_field_autocomplete_access',
+    'access arguments' => array(2, 3),
+    'type' => MENU_CALLBACK,
+  );
+  
+  return $items;
+}
+ 
+/**
+ * Implements hook_field_info().
+ */
+/*
+function intstrux_highwire_field_field_info() {
+  return array(
+   'highwire_article' => array(
+     'label' => t('HighWire Article'),
+     'description' => t('Browse and select article at HighWire Press.'),
+     'settings' => array(),
+     'instance_settings' => array(),
+     'default_widget' => 'intstrux_highwire_field_browser',
+     'default_formatter' => 'default',
+    ),
+  );
+}
+*/
+
+function intstrux_highwire_field_autocomplete($field_name, $string = '') {
+  $hw = intstrux_highwire_initialize();
+  $matches = array();
+  
+  $result = array();
+  
+  drupal_json_output($hw);
+}
+
+function intstrux_highwire_field_autocomplete_access($entity_type, $field_name, $entity_id_or_bundle = NULL) {
+  return true;
+}
+
+/**
+ * Theme function returning a article field.
+ */
+/*
+function theme_intstrux_highwire_field_browser($element) {
+  return $element['#children'];
+}
+*/
+
