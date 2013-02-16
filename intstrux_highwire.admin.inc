@@ -25,6 +25,7 @@ function intstrux_highwire_admin_settings($form, &$form_state) {
     '#maxlength' => 255,
     '#required' => TRUE,
     '#default_value' => variable_get('intstrux_highwire_api_url', ''),
+    '#description' => t('Example: http://api.domain.com.'),
   );
 
   $form['account']['intstrux_highwire_api_key'] = array(
@@ -58,7 +59,7 @@ function intstrux_highwire_admin_settings($form, &$form_state) {
     '#type' => 'select',
     '#title' => t('Cache lifetime'),
     '#options' => array(
-      '0' => t('<none>'),
+      '-1' => t('<none>'),
       '60' => t('1 min'),
       '180' => t('3 min'),
       '300' => t('5 min'),
@@ -74,10 +75,20 @@ function intstrux_highwire_admin_settings($form, &$form_state) {
       '86400' => t('1 day'),
 
     ),
-    '#default_value' => variable_get('intstrux_highwire_cache_lifetime', 0),
+    '#default_value' => variable_get('intstrux_highwire_cache_lifetime', -1),
   );
   
   $form = system_settings_form($form);
+  $form['#validate'][] = 'intstrux_highwire_admin_settings_validate';
   
   return $form;
+}
+
+function intstrux_highwire_admin_settings_validate($form, &$form_state) {
+  $url = $form_state['values']['intstrux_highwire_api_url'];
+  $key = $form_state['values']['intstrux_highwire_api_key'];
+  
+  if(!intstrux_highwire_verify_key($url, NULL, $key)) {
+    form_set_error('intstrux_highwire_api_key', t('Invalid API key'));
+  }
 }

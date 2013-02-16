@@ -36,29 +36,95 @@ function intstrux_highwire_permission() {
 }
 
 /**
- * Initializes the Brightcove Media API and returns an instance of the object.
+ * Return the path to the coreylib library.
  *
- * @param string $read_token
- *   An optional read token instead of the stored one.
- * @return BCMAPI
- *   Instance of the Brightcove Media API or FALSE if fails to initialize.
+ * The library is available from https://github.com/collegeman/coreylib/.
+ *
+ * @return string
+ *   The path to the coreylib.php file.
  */
-function intstrux_highwire_initialize($read_token = NULL) {
+function intstrux_highwire_coreylib_path() {
+  $path = &drupal_static(__FUNCTION__);
 
-  if (empty($read_token)) {
-    $read_token = variable_get('intstrux_highwire_api_key', '');
+  if (!isset($path)) {
+    if (!($path = variable_get('intstrux_highwire_coreylib_path', FALSE))) {
+      $files = drupal_system_listing('/^coreylib\.php$/', 'libraries',
+                                     'filename', 0);
+      if (isset($files['coreylib.php'])) {
+        $path = dirname($files['coreylib.php']->uri);
+        variable_set('intstrux_highwire_coreylib_path', $path);
+      }
+    }
+  }
+
+  return $path;
+}
+
+/**
+ * Initializes the HighWire API and returns an instance of the object.
+ *
+ * @param string $url
+ *   An optional URL instead of the stored one.
+ * @param string $path
+ *   An optional path.
+ * @param string $key
+ *   An optional API key instead of the stored one.
+ * @return coreylib
+ *   Instance of the HighWire coreylib API or FALSE if fails to initialize.
+ */
+function intstrux_highwire_initialize($url = NULL, $path = NULL, $key = NULL) {
+
+  if(empty($url)) {
+    $url = variable_get('intstrux_highwire_api_url', '');
+  }
+
+  if (empty($key)) {
+    $key = variable_get('intstrux_highwire_api_key', '');
   }
   
-  if (empty($read_token)) {
-    drupal_set_message(t('Cannot initialize HighWire API. Contact site administrators.'), 'error');
-    watchdog('brightcove', 'Brightcove Read API keys not found, cannot initialize Brightcove MAPI SDK.', array(), WATCHDOG_ERROR);
+  if (empty($url)) {
+    drupal_set_message(t('Cannot initialize HighWire API URL. Contact site administrators.'), 'error');
+    watchdog('intstrux_highwire', 'HighWire API URL not found, cannot initialize HighWire API.', array(), WATCHDOG_ERROR);
     return FALSE;
   }
   
-  return array('a.title.1 [id:34535]' => 'a.title.1 [id:34535]', 'a.title.2 [id:3334535]' => 'a.title.2 [id:3334535]');
+  if (empty($key)) {
+    drupal_set_message(t('Cannot initialize HighWire API. Contact site administrators.'), 'error');
+    watchdog('intstrux_highwire', 'HighWire API key not found, cannot initialize HighWire API.', array(), WATCHDOG_ERROR);
+    return FALSE;
+  }
+  
+  if(file_exists(intstrux_highwire_coreylib_path() . '/coreylib.php')) {
+    include_once(intstrux_highwire_coreylib_path() . '/coreylib.php');
+    
+    $path = (!empty($path))? $path : '';
+
+    $url = $url . '/' . $path;
+
+    $hw = new clApi($url);
+    $hw->param('key', $key);
+
+    return $hw;
+  }
+  
+  return false;
 }
 
+/**
+ * Verifies the HighWire API key.
+ */
+function intstrux_highwire_verify_key($url = NULL, $key = NULL) {
+  $hw = intstrux_highwire_initialize($url, NULL, $key);
+  
+  /* API key validation logic */
+  
+  return true;
+}
 
+//testing 
+function intstrux_highwire_init() {
+  //nothing
+}
 
 
 

@@ -27,7 +27,6 @@ function intstrux_highwire_field_menu() {
 /**
  * Implements hook_field_info().
  */
-/*
 function intstrux_highwire_field_field_info() {
   return array(
    'highwire_article' => array(
@@ -36,24 +35,192 @@ function intstrux_highwire_field_field_info() {
      'settings' => array(),
      'instance_settings' => array(),
      'default_widget' => 'intstrux_highwire_field_browser',
-     'default_formatter' => 'default',
+     'default_formatter' => 'intstrux_highwire_default',
     ),
   );
 }
-*/
+
+/**
+ * Implementation of hook_field_widget_info().
+ */
+function intstrux_highwire_field_field_widget_info() {
+  return array(
+    'intstrux_highwire_field_browser' => array(
+      'label' => t('HighWire browser'),
+      'field types' => array('highwire_article'),
+      'behaviors' => array(
+        'default value' => FIELD_BEHAVIOR_NONE,
+      ),
+    ),
+  );
+}
+
+/**
+ * Implementation of hook_field_formatter_info().
+ */
+function intstrux_highwire_field_field_formatter_info() {
+  $formatters = array();
+
+  $formatters['intstrux_highwire_default'] = array(
+    'label' => t('Article title (link)'),
+    'description' => t('Display the title of the referenced article as a link to the node page.'),
+    'field types' => array('highwire_article'),
+  );
+  
+  $formatters['intstrux_highwire_plain'] = array(
+    'label' => t('Article title (no link)'),
+    'description' => t('Display the title of the referenced article as plain text.'),
+    'field types' => array('highwire_article'),
+  );
+  
+  $formatters['intstrux_highwire_abstract'] = array(
+    'label' => t('Article abstract'),
+    'description' => t('Display the abstract of the referenced article.'),
+    'field types' => array('highwire_article'),
+  );
+  
+  $formatters['intstrux_highwire_full'] = array(
+    'label' => t('Article description'),
+    'description' => t('Display the entire content of the referenced article.'),
+    'field types' => array('highwire_article'),
+  );  
+  
+  $formatters['intstrux_highwire_pmid'] = array(
+    'label' => t('Article pmid'),
+    'description' => t('Display the referenced article pmid'),
+    'field types' => array('highwire_article'),
+  );
+  
+  return $formatters;
+}
 
 function intstrux_highwire_field_autocomplete($field_name, $string = '') {
-  $hw = intstrux_highwire_initialize();
+  $hw = intstrux_highwire_initialize(NULL, 'opensearch/results');
+  // required value is 1
+  $hw->param('v', '1');
+  // the searchTerms CQL search query, search by title
+  $hw->param('cql', 'dc.title any (' . $string . ')');
+  // output should be returned in JSON format.
+  $hw->param('type', 'json');
+  // set cache expiration
+  $hw->parse(variable_get('intstrux_highwire_cache_lifetime', -1));
+  
   $matches = array();
   
-  $result = array();
+  $result = drupal_json_decode($hw->getContent());
   
-  drupal_json_output($hw);
+  foreach($result['atom:feed']['atom:entry'] as $entry) {
+    $id = 0;
+    $title = check_plain($entry['atom:title']['$']);
+
+    foreach($entry['nlm:article-id'] as $articleId) {
+      if($articleId['@pub-id-type'] == 'pmid') {
+        $id = $articleId['$'];
+        break;
+      }
+    }
+
+    $matches[$title . ' [id:' . $id . ']'] = check_plain($title . ' [id: ' . $id . ']');
+  }
+    
+  drupal_json_output($matches);
 }
 
 function intstrux_highwire_field_autocomplete_access($entity_type, $field_name, $entity_id_or_bundle = NULL) {
   return true;
 }
+
+function intstrux_highwire_field_browser() {
+  return 'hello world :D';
+}
+
+
+/**
+ * Value callback for the buttons.
+ *
+ * @return null
+ */
+function intstrux_highwire_field_button_value_callback() {
+  return NULL;
+}
+
+/**
+ * Implements hook_field_is_empty().
+ */
+function intstrux_highwire_field_field_is_empty($item, $field) {
+  return empty($item['article_id']);
+}
+
+/**
+ * Callback for Brightcove field browser widget.
+ * Will return a field value in "video-name [id:videoId]" format.
+ *
+ */
+function intstrux_highwire_field_browser_value($element, $value, $form_state) {
+  if (!$value && !$form_state['input']) {
+    $value = $element['#default_value'];
+  }
+  if (((int) $value) > 1) {
+    /*
+    $video = brightcove_video_load($value);
+    if (!empty($video->id)) {
+      $value = check_plain($video->name) . " [id:{$video->id}]";
+    }
+    else if (!is_null(brightcove_video_cache_get($value))) {
+      $value = check_plain(brightcove_video_cache_get($value)->name) .
+        " [id:{$value}]";
+    }
+	*/
+
+  }
+  return $value;
+}
+
+/**
+ * Implements hook_field_widget_form().
+ */
+function intstrux_highwire_field_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  $entity_type = $element['#entity_type'];
+  $entity_info = entity_get_info($entity_type);
+  $eid = isset($form[$entity_info['entity keys']['id']]['#value']) ? $form[$entity_info['entity keys']['id']]['#value'] : NULL;
+  $bundle = isset($form[$entity_info['entity keys']['bundle']]['#value']) ? $form[$entity_info['entity keys']['bundle']]['#value'] : NULL;
+  
+  $element['article_id'] = array(
+    '#type' => 'textfield',
+    '#default_value' => isset($items[$delta]['article_id']) ? $items[$delta]['article_id'] : NULL,
+    '#title' => $element['#title'],
+    '#value_callback' => 'intstrux_highwire_field_browser_value',
+    '#autocomplete_path' => 'highwire_field/autocomplete/' . $element['#entity_type'] . '/' . $element['#field_name'] . '/' . ($eid ? $eid : ($bundle ? $bundle : 0)),
+    '#attributes' => array(
+      'rel' => array($element['#field_name'] . '-' . $delta),
+      'class' => array('brightcove-video-field', $element['#field_name'] . '-' . $delta),
+      'data-field-name' => $element['#field_name'],
+    ),
+    '#element_validate' => array(
+      'intstrux_highwire_field_browser_validate',
+    ),
+    '#field_name' => $element['#field_name'],
+  );
+  
+  $element['actions']['remove'] = array(
+    '#type' => 'button',
+    '#attributes' => array(
+      'class' => array('highwire-field-remove-button'),
+      'rel' => $element['#field_name'] . '-' . $delta,
+      'data-entity-type' => $entity_type,
+      'data-field-name' => $element['#field_name'],
+      'data-entity-id' => is_null($eid) ? '0' : $eid,
+    ),
+    '#default_value' => t('Remove'),
+    '#value_callback' => 'intstrux_highwire_field_button_value_callback',
+    '#name' => $element['#field_name'] . '-' . $delta,
+  );
+
+  return $element;
+}
+
+
+
 
 /**
  * Theme function returning a article field.
