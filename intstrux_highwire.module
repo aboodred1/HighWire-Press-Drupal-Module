@@ -4,6 +4,11 @@
  * @file
  * Intstrux highwire module.
  */
+ 
+//testing 
+function intstrux_highwire_init() {
+  //nothing
+}
 
  /**
  * Implements hook_menu().
@@ -121,9 +126,73 @@ function intstrux_highwire_verify_key($url = NULL, $key = NULL) {
   return true;
 }
 
-//testing 
-function intstrux_highwire_init() {
-  //nothing
+/**
+ * Loads Brightcove video from BC Media API. Uses a 5 minutes cache to speed up lookups.
+ *
+ * @param $article_id
+ *
+ * @return $article
+ * Article object or FALSE if article not found.
+ */
+function intstrux_highwire_article_load($article_id) {
+  $cache = cache_get('hw:article:' . $article_id, 'cache');
+  if (isset($cache->data['atom:entry'])) {
+    return $cache->data;
+  }
+  else {
+    $hw = intstrux_highwire_initialize(NULL, 'content');
+
+    if($hw) {
+      // PubMed ID
+      $hw->param('pmid', $article_id);
+      // output should be returned in JSON format.
+      $hw->param('type', 'json');
+      // set cache expiration
+      $hw->parse(variable_get('intstrux_highwire_cache_lifetime', -1));
+
+      $article = $hw ? drupal_json_decode($hw->getContent()) : NULL;
+
+      if (isset($article['atom:entry'])) {
+        cache_set('hw:article:' . $article_id, $article, 'cache', $_SERVER['REQUEST_TIME'] + 300);
+        return $article;
+      }
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * Parse a field value in form of "title [id:123]" and return 123
+ *
+ * @param $id
+ *   Video ID in form of "title [id:123]".
+ * @return
+ *   Int value of the ID or NULL if not found.
+ */
+function intstrux_highwire_parse_id($id) {
+  preg_match('/\[id:([^\[]*)\]$/', $id, $matches);
+  if (count($matches) == 2) {
+    return $matches[1];
+  }
+  return NULL;
+}
+
+/**
+ * Parse PubMed ID
+ *
+ * @param $entry
+ *   Article array entry.
+ * @return
+ *   Int value of the pmid or NULL if not found.
+ */
+function intstrux_highwire_parse_pmid($entry) {
+  foreach($entry['nlm:article-id'] as $articleId) {
+    if($articleId['@pub-id-type'] == 'pmid') {
+      $pmid = $articleId['$'];
+      return $pmid;
+    }
+  }
+  return NULL;
 }
 
 
