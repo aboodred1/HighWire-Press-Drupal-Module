@@ -16,82 +16,12 @@ function intstrux_highwire_field_menu() {
     'title' => 'HighWire field autocomplete',
     'page callback' => 'intstrux_highwire_field_autocomplete',
     'page arguments' => array(3, 5),
-    'access callback' => 'intstrux_highwire_field_autocomplete_access',
+    'access callback' => 'intstrux_highwire_field_browse_access',
     'access arguments' => array(2, 3),
     'type' => MENU_CALLBACK,
   );
   
   return $items;
-}
- 
-/**
- * Implements hook_field_info().
- */
-function intstrux_highwire_field_field_info() {
-  return array(
-   'highwire_article' => array(
-     'label' => t('HighWire Article'),
-     'description' => t('Browse and select article at HighWire Press.'),
-     'settings' => array(),
-     'instance_settings' => array(),
-     'default_widget' => 'intstrux_highwire_field_browser',
-     'default_formatter' => 'intstrux_highwire_default',
-    ),
-  );
-}
-
-/**
- * Implementation of hook_field_widget_info().
- */
-function intstrux_highwire_field_field_widget_info() {
-  return array(
-    'intstrux_highwire_field_browser' => array(
-      'label' => t('HighWire browser'),
-      'field types' => array('highwire_article'),
-      'behaviors' => array(
-        'default value' => FIELD_BEHAVIOR_NONE,
-      ),
-    ),
-  );
-}
-
-/**
- * Implementation of hook_field_formatter_info().
- */
-function intstrux_highwire_field_field_formatter_info() {
-  $formatters = array();
-
-  $formatters['intstrux_highwire_default'] = array(
-    'label' => t('Article title (link)'),
-    'description' => t('Display the title of the referenced article as a link to the node page.'),
-    'field types' => array('highwire_article'),
-  );
-  
-  $formatters['intstrux_highwire_plain'] = array(
-    'label' => t('Article title (no link)'),
-    'description' => t('Display the title of the referenced article as plain text.'),
-    'field types' => array('highwire_article'),
-  );
-  
-  $formatters['intstrux_highwire_abstract'] = array(
-    'label' => t('Article abstract'),
-    'description' => t('Display the abstract of the referenced article.'),
-    'field types' => array('highwire_article'),
-  );
-  
-  $formatters['intstrux_highwire_full'] = array(
-    'label' => t('Article description'),
-    'description' => t('Display the entire content of the referenced article.'),
-    'field types' => array('highwire_article'),
-  );  
-  
-  $formatters['intstrux_highwire_pmid'] = array(
-    'label' => t('Article pmid'),
-    'description' => t('Display the referenced article pmid'),
-    'field types' => array('highwire_article'),
-  );
-  
-  return $formatters;
 }
 
 function intstrux_highwire_field_autocomplete($field_name, $string = '') {
@@ -122,81 +52,26 @@ function intstrux_highwire_field_autocomplete($field_name, $string = '') {
   drupal_json_output($matches);
 }
 
-function intstrux_highwire_field_autocomplete_access($entity_type, $field_name, $entity_id_or_bundle = NULL) {
+/**
+ * Access callback for intstrux highwire browser.
+ */
+function intstrux_highwire_field_browse_access($entity_type, $field_name, $entity_id_or_bundle = NULL) {
   return true;
 }
 
-function intstrux_highwire_field_browser() {
-  return 'hello world :D';
-}
-
-
 /**
- * Value callback for the buttons.
- *
- * @return null
+ * Implementation of hook_field_widget_info().
  */
-function intstrux_highwire_field_button_value_callback() {
-  return NULL;
-}
-
-/**
- * Implements hook_field_is_empty().
- */
-function intstrux_highwire_field_field_is_empty($item, $field) {
-  return empty($item['article_id']);
-}
-
-/**
- * Callback for Brightcove field browser widget.
- * Will return a field value in "video-name [id:videoId]" format.
- *
- */
-function intstrux_highwire_field_browser_value($element, $value, $form_state) {
-  if (!$value && !$form_state['input']) {
-    $value = $element['#default_value'];
-  }
-  if (((int) $value) > 1) {
-    /*
-    $video = brightcove_video_load($value);
-    if (!empty($video->id)) {
-      $value = check_plain($video->name) . " [id:{$video->id}]";
-    }
-    else if (!is_null(brightcove_video_cache_get($value))) {
-      $value = check_plain(brightcove_video_cache_get($value)->name) .
-        " [id:{$value}]";
-    }
-	*/
-
-  }
-  return $value;
-}
-
-/**
- * Validate callback for the field.
- */
-function intstrux_highwire_field_browser_validate($element, &$form_state) {
-  $id = '';
-  $value = $element['#value'];
-  
-  if (!empty($value)) {
-    // Assign ID to the value.
-    // 231289 [id:72431493001]
-    $id = intstrux_highwire_parse_id($value);
-
-    if (is_numeric($id)) {
-      // Matched ID, check if the article exists.
-      $article = intstrux_highwire_article_load($id);
-
-      if (!isset($article['atom:entry']) && intstrux_highwire_parse_pmid($article['atom:entry']) != $id) {
-        form_error($element, t('%name: Found no valid article with that title. Please note that it might take several minutes after the article has been add to HighWire press to appear in the API.', array('%name' => t($element['#title']))));
-      }
-    } else {
-      form_error($element, t('%name: Found no valid article with that title. Please note that it might take several minutes after the article has been add to HighWire press to appear in the API.', array('%name' => t($element['#title']))));
-    }
-  } 
-  
-  form_set_value($element, $id, $form_state);
+function intstrux_highwire_field_field_widget_info() {
+  return array(
+    'intstrux_highwire_field_browser' => array(
+      'label' => t('HighWire browser'),
+      'field types' => array('highwire_article'),
+      'behaviors' => array(
+        'default value' => FIELD_BEHAVIOR_NONE,
+      ),
+    ),
+  );
 }
 
 /**
@@ -274,7 +149,7 @@ function intstrux_highwire_field_field_widget_form(&$form, &$form_state, $field,
     );
   }
   
-  // not sure I'm going to use ui library
+  // not sure if I'm going to use ui library
   /*
   $element['article_id']['#attached']['library'] = array(
     array('system', 'ui.dialog')
@@ -289,6 +164,7 @@ function intstrux_highwire_field_field_widget_form(&$form, &$form_state, $field,
     drupal_get_path('module', 'intstrux_highwire_field') . '/js/highwire.js',
   );
   
+  // add field element to javascript drupal settings
   $element['article_id']['#attached']['js'][] = array(
     'data' => $intstrux_highwire_field_settings[$element['#field_name']],
     'type' => 'setting',
@@ -297,15 +173,209 @@ function intstrux_highwire_field_field_widget_form(&$form, &$form_state, $field,
   return $element;
 }
 
+/**
+ * Value callback for the buttons.
+ *
+ * @return null
+ */
+function intstrux_highwire_field_button_value_callback() {
+  return NULL;
+}
+
+/**
+ * Implements hook_field_is_empty().
+ */
+function intstrux_highwire_field_field_is_empty($item, $field) {
+  return empty($item['article_id']);
+}
+
+/**
+ * Callback for Brightcove field browser widget.
+ * Will return a field value in "video-name [id:videoId]" format.
+ *
+ */
+function intstrux_highwire_field_browser_value($element, $value, $form_state) {
+  if (!$value && !$form_state['input']) {
+    $value = $element['#default_value'];
+  }
+  if (((int) $value) > 1) {
+    
+    $article = intstrux_highwire_article_load($value);
+
+    if(isset($article['atom:entry']) && !empty($article['atom:entry'])) {
+      $id = intstrux_highwire_parse_pmid($article['atom:entry']);
+      $title = $article['atom:entry']['atom:title']['$'];
+      $value = check_plain($title) . " [id:{$id}]";
+    }
+  }
+  
+  return $value;
+}
+
+/**
+ * Validate callback for the field.
+ */
+function intstrux_highwire_field_browser_validate($element, &$form_state) {
+  $id = '';
+  $value = $element['#value'];
+  
+  if (!empty($value)) {
+    // Assign ID to the value.
+    // 231289 [id:72431493001]
+    $id = intstrux_highwire_parse_id($value);
+
+    if (is_numeric($id)) {
+      // Matched ID, check if the article exists.
+      $article = intstrux_highwire_article_load($id);
+
+      if (!isset($article['atom:entry']) && intstrux_highwire_parse_pmid($article['atom:entry']) != $id) {
+        form_error($element, t('%name: Found no valid article with that title. Please note that it might take several minutes after the article has been add to HighWire press to appear in the API.', array('%name' => t($element['#title']))));
+      }
+    } else {
+      form_error($element, t('%name: Found no valid article with that title. Please note that it might take several minutes after the article has been add to HighWire press to appear in the API.', array('%name' => t($element['#title']))));
+    }
+  } 
+  
+  form_set_value($element, $id, $form_state);
+}
 
 
+/**
+ * Implements hook_field_info().
+ */
+function intstrux_highwire_field_field_info() {
+  return array(
+   'highwire_article' => array(
+     'label' => t('HighWire Article'),
+     'description' => t('Browse and select article at HighWire Press.'),
+     'settings' => array(),
+     'instance_settings' => array(),
+     'default_widget' => 'intstrux_highwire_field_browser',
+     'default_formatter' => 'intstrux_highwire_default',
+    ),
+  );
+}
+
+/**
+ * Implementation of hook_field_formatter_info().
+ */
+function intstrux_highwire_field_field_formatter_info() {
+  $formatters = array();
+
+  $formatters['intstrux_highwire_default'] = array(
+    'label' => t('Article title (link)'),
+    'description' => t('Display the title of the referenced article as a link to the node page.'),
+    'field types' => array('highwire_article'),
+  );
+  
+  $formatters['intstrux_highwire_plain'] = array(
+    'label' => t('Article title (no link)'),
+    'description' => t('Display the title of the referenced article as plain text.'),
+    'field types' => array('highwire_article'),
+  );
+  
+  $formatters['intstrux_highwire_abstract'] = array(
+    'label' => t('Article abstract'),
+    'description' => t('Display the abstract of the referenced article.'),
+    'field types' => array('highwire_article'),
+  );
+  
+  $formatters['intstrux_highwire_full'] = array(
+    'label' => t('Article description'),
+    'description' => t('Display the entire content of the referenced article.'),
+    'field types' => array('highwire_article'),
+  );  
+  
+  $formatters['intstrux_highwire_pmid'] = array(
+    'label' => t('Article pmid'),
+    'description' => t('Display the referenced article pmid'),
+    'field types' => array('highwire_article'),
+  );
+  
+  return $formatters;
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ *
+ * @see intstrux_highwire_field_field_formatter_info()
+ */
+function intstrux_highwire_field_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  $element = array();
+  
+  foreach ($items as $delta => $item) {
+    $article_id = $item['article_id'];
+  }
+  
+  switch ($display['type']) {
+    case 'intstrux_highwire_default':
+      if(isset($article_id)) {
+        $article = intstrux_highwire_article_load($article_id);
+        $title = check_plain($article['atom:entry']['atom:title']['$']);
+        $link = intstrux_highwire_parse_link($article['atom:entry'], 'abstract', 'html');
+        $element[0]['#markup'] = l($title, $link);
+      }
+      break;
+    case 'intstrux_highwire_plain':
+      if(isset($article_id)) {
+        $article = intstrux_highwire_article_load($article_id);
+        $title = check_plain($article['atom:entry']['atom:title']['$']);
+        $element[0]['#markup'] = t($title);
+      }
+      break;
+    case 'intstrux_highwire_abstract':
+      if(isset($article_id)) {
+        $abstract = intstrux_highwire_article_content_load($article_id, 'abstract', 'html');
+        $element[0]['#markup'] = $abstract;
+      }
+      break;
+    case 'intstrux_highwire_full':
+      if(isset($article_id)) {
+        $full = intstrux_highwire_article_content_load($article_id, 'full', 'html');
+        $element[0]['#markup'] = $full;
+      }
+      break;
+    case 'intstrux_highwire_pmid':
+      if(isset($article_id)) {
+        $element[0]['#markup'] = $article_id;
+      }
+      break;
+  }
+  
+  return $element;
+}
 
 /**
  * Theme function returning a article field.
  */
-/*
 function theme_intstrux_highwire_field_browser($element) {
   return $element['#children'];
 }
-*/
 
+/**
+ * Implements hook_node_presave().
+ */
+function intstrux_highwire_field_node_presave($node) {
+  
+  $lang = $node->language;
+
+  $article_id = 0;
+  
+  foreach($node as $delta => $item) {
+    $field = field_info_field($delta);
+    if(isset($field['type']) && $field['type'] == 'highwire_article') {
+      $article_id = $node->{$delta}[$lang][0]['article_id'];
+      break;
+    }
+  }
+  
+  if($article_id) {
+    // load article by $article_id
+    $article = intstrux_highwire_article_load($article_id);
+  
+    if(isset($article['atom:entry'])) {
+      // save new title based on article title
+      $node->title = check_plain($article['atom:entry']['atom:title']['$']);  
+    }
+  }
+}

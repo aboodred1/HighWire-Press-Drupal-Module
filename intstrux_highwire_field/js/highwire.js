@@ -17,7 +17,7 @@
       intstrux_highwire_field_settings = settings;
       
       // article autocomplete field
-      $('.form-text.highwire-article-field').change(Drupal.intstrux_highwire_field.actions.change);
+      $('.form-text.highwire-article-field', context).change(Drupal.intstrux_highwire_field.actions.change);
 
       // browse button
       $('.highwire-field-browse-button', context).click(Drupal.intstrux_highwire_field.actions.browse);
@@ -42,8 +42,7 @@
   }
   
   Drupal.intstrux_highwire_field.actions.browse = function(event) {
-
-    alert('dddddd');
+    // nothing 
   }
   
   Drupal.intstrux_highwire_field.actions.remove = function(event) {

@@ -102,9 +102,12 @@ function intstrux_highwire_initialize($url = NULL, $path = NULL, $key = NULL) {
   if(file_exists(intstrux_highwire_coreylib_path() . '/coreylib.php')) {
     include_once(intstrux_highwire_coreylib_path() . '/coreylib.php');
     
-    $path = (!empty($path))? $path : '';
+    $arr_url = parse_url($url);
 
-    $url = $url . '/' . $path;
+    if(!isset($arr_url['path'])) {
+      $path = (!empty($path))? $path : '';
+      $url = $url . '/' . $path;
+    }
 
     $hw = new clApi($url);
     $hw->param('key', $key);
@@ -127,7 +130,7 @@ function intstrux_highwire_verify_key($url = NULL, $key = NULL) {
 }
 
 /**
- * Loads Brightcove video from BC Media API. Uses a 5 minutes cache to speed up lookups.
+ * Loads HighWire article from HighWire Press API.
  *
  * @param $article_id
  *
@@ -155,6 +158,30 @@ function intstrux_highwire_article_load($article_id) {
       if (isset($article['atom:entry'])) {
         cache_set('hw:article:' . $article_id, $article, 'cache', $_SERVER['REQUEST_TIME'] + 300);
         return $article;
+      }
+    }
+  }
+  return FALSE;
+}
+
+function intstrux_highwire_article_content_load($article_id, $view = 'abstract', $type = 'html') {
+  $cache = cache_get("hw:article:{$view}:{$type}:" . $article_id, 'cache');
+  if ($cache) {
+    return $cache->data;
+  } else {
+    if($article = intstrux_highwire_article_load($article_id)) {
+      $article_url = intstrux_highwire_parse_link($article['atom:entry'], $view, $type);
+
+      $hw = intstrux_highwire_initialize($article_url);
+
+      if($hw) {
+        // set cache expiration
+        $hw->parse(variable_get('intstrux_highwire_cache_lifetime', -1));
+        // view content
+        if($content = $hw->getContent()) {
+          cache_set("hw:article:{$view}:{$type}:" . $article_id, $content, 'cache', $_SERVER['REQUEST_TIME'] + 300);
+          return $content;
+        }
       }
     }
   }
@@ -195,8 +222,47 @@ function intstrux_highwire_parse_pmid($entry) {
   return NULL;
 }
 
+/**
+ * Parse atom:link
+ *
+ * @param $entry
+ *   Article array entry.
+ * @param $view
+ *   Link view: precis, abstract, full
+ * @param $type
+ *   Link file type: html, xml, pdf
+ * @return
+ *   String value of atom:link or NULL if not found.
+ */
+function intstrux_highwire_parse_link($entry, $view, $type) {
+  foreach($entry['atom:link'] as $link) {
+    if(strstr($link['@href'], "$view.$type") == "$view.$type") {
+      return $link['@href'];
+    }
+  }
+  return NULL;
+}
 
+/**
+ * Parse atom:link
+ *
+ * @param $entry
+ *   Article array entry.
+ * @param $view
+ *   Link view: precis, abstract, full
+ * @param $type
+ *   Link file type: html, xml, pdf
+ * @return
+ *   String value of atom:link or NULL if not found.
+ */
+function intstrux_highwire_parse_content( $attr, $value, $xml ) {
+  $attr = preg_quote($attr);
+  $value = preg_quote($value);
 
+  $tag_regex = '/<div[^>]*'.$attr.'="'.$value.'">(.*?)<\\/div>/si';
 
+  preg_match($tag_regex, $xml, $matches);
+  return $matches[1];
+}
 
 

@@ -11,14 +11,14 @@
 function intstrux_highwire_field_field_schema($field) {
   return array(
     'columns' => array(
-      'highwire_id' => array(
+      'article_id' => array(
         'type' => 'varchar',
         'length' => 25,
         'not null' => FALSE
       ),
     ),
     'indexes' => array(
-      'highwire_id' => array('highwire_id'),
+      'article_id' => array('article_id'),
     ),
   );
 }
