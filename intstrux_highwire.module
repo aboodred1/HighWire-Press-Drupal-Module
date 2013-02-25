@@ -170,18 +170,20 @@ function intstrux_highwire_article_content_load($article_id, $view = 'abstract',
     return $cache->data;
   } else {
     if($article = intstrux_highwire_article_load($article_id)) {
-      $article_url = intstrux_highwire_parse_link($article['atom:entry'], $view, $type);
+      if($article_url = intstrux_highwire_parse_link($article['atom:entry'], $view, $type)){
+        $hw = intstrux_highwire_initialize($article_url);
 
-      $hw = intstrux_highwire_initialize($article_url);
-
-      if($hw) {
-        // set cache expiration
-        $hw->parse(variable_get('intstrux_highwire_cache_lifetime', -1));
-        // view content
-        if($content = $hw->getContent()) {
-          cache_set("hw:article:{$view}:{$type}:" . $article_id, $content, 'cache', $_SERVER['REQUEST_TIME'] + 300);
-          return $content;
+        if($hw) {
+          // set cache expiration
+          $hw->parse(variable_get('intstrux_highwire_cache_lifetime', -1));
+          // view content
+          if($content = $hw->getContent()) {
+            cache_set("hw:article:{$view}:{$type}:" . $article_id, $content, 'cache', $_SERVER['REQUEST_TIME'] + 300);
+            return $content;
+          }
         }
+      } else {
+        return t('No !view content with this article', array('!view' => $view));
       }
     }
   }
@@ -244,25 +246,23 @@ function intstrux_highwire_parse_link($entry, $view, $type) {
 }
 
 /**
- * Parse atom:link
- *
- * @param $entry
- *   Article array entry.
- * @param $view
- *   Link view: precis, abstract, full
- * @param $type
- *   Link file type: html, xml, pdf
- * @return
- *   String value of atom:link or NULL if not found.
+ * Parse content
  */
-function intstrux_highwire_parse_content( $attr, $value, $xml ) {
+function intstrux_highwire_parse_content($element, $attr, $value, $content) {
   $attr = preg_quote($attr);
   $value = preg_quote($value);
 
-  $tag_regex = '/<div[^>]*'.$attr.'="'.$value.'">(.*?)<\\/div>/si';
+  $tag_regex = '/<'.$element.'[^>]*'.$attr.'="'.$value.'">(.*?)<\\/'.$element.'>/si';
 
-  preg_match($tag_regex, $xml, $matches);
+  preg_match($tag_regex, $content, $matches);
   return $matches[1];
 }
 
-
+/**
+ * Remove tag
+ */
+function intstrux_highwire_remove_tag($element, $attr, $value, $content) {
+  $attr = preg_quote($attr);
+  $value = preg_quote($value);
+  return preg_replace('!<'.$element.'\s+'.$attr.'="'.$value.'">.*?</'.$element.'>!is', '', $content);
+}

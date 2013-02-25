@@ -21,6 +21,17 @@ function intstrux_highwire_field_menu() {
     'type' => MENU_CALLBACK,
   );
   
+  // entity type, field name, entity id or bundle
+  $items['highwire_field/browse/%/%/%'] = array(
+    'title' => 'HighWire Articles Browser',
+    'page arguments' => array(),
+    'page callback' => 'intstrux_highwire_field_browse',
+    'delivery callback' => 'intstrux_highwire_field_deliver_dialog',
+    'access callback' => 'intstrux_highwire_field_browse_access',
+    'access arguments' => array(2, 3, 4),
+    'type' => MENU_CALLBACK,
+  );
+  
   return $items;
 }
 
@@ -98,6 +109,7 @@ function intstrux_highwire_field_field_widget_form(&$form, &$form_state, $field,
       'intstrux_highwire_field_browser_validate',
     ),
     '#field_name' => $element['#field_name'],
+    '#maxlength' => 300,
   );
   
   // Button to browse videos.
@@ -116,7 +128,7 @@ function intstrux_highwire_field_field_widget_form(&$form, &$form_state, $field,
     '#default_value' => t('Browse'),
     '#value_callback' => 'intstrux_highwire_field_button_value_callback',
     '#ajax' => array(
-       'callback' => 'ajax_browse_dialog_callback',
+       'callback' => 'intstrux_highwire_field_ajax_browse_dialog_callback',
     ),
     '#name' => $element['#field_name'] . '-' . $delta,
   );
@@ -150,14 +162,12 @@ function intstrux_highwire_field_field_widget_form(&$form, &$form_state, $field,
   }
   
   // not sure if I'm going to use ui library
-  /*
   $element['article_id']['#attached']['library'] = array(
-    array('system', 'ui.dialog')
+    array('system', 'ui.dialog'),
   );
-  */
   
   $element['article_id']['#attached']['css'] = array(
-    drupal_get_path('module', 'intstrux_highwire_field') . '/styles/highwire.css',
+    drupal_get_path('module', 'intstrux_highwire_field') . '/css/highwire.css',
   );
 
   $element['article_id']['#attached']['js'] = array(
@@ -239,6 +249,52 @@ function intstrux_highwire_field_browser_validate($element, &$form_state) {
   form_set_value($element, $id, $form_state);
 }
 
+function intstrux_highwire_field_ajax_browse_dialog_callback($form, $form_state) {
+  $entity_type = $form_state['triggering_element']['#attributes']['data-entity-type'];
+  $bundle = $form_state['triggering_element']['#attributes']['data-bundle'];
+  $field_name = $form_state['triggering_element']['#attributes']['data-field-name'];
+  $entity_id = $form_state['triggering_element']['#attributes']['data-entity-id'];
+  $field_rel = $form_state['triggering_element']['#attributes']['rel'];
+  
+  
+  $title = t('HighWire Articles Browser');
+  $id = 'highwire-browse-dialog';
+  $selector = '<div id="' . $id . '">';
+  $path = url("highwire_field/browse/{$entity_type}/{$field_name}/" . ($entity_id ? $entity_id : ($bundle ? $bundle : 0)));
+  
+  $commands = array();
+  $commands[] = ajax_command_intstrux_dialog($title, $id, $selector, $path, $field_rel, NULL, TRUE);
+  return array('#type' => 'ajax', '#commands' => $commands);
+}
+
+function intstrux_highwire_field_ajax_browse_dialog_close_callback($form, $form_state) {
+  $selector = '#browse-dialog';
+  $data = check_plain($form_state['values']['title']) . ' [id:' . check_plain($form_state['values']['id']) . ']';
+  $dialog_type = 'browse';
+
+  $commands = array();
+  $commands[] = ajax_command_intstrux_close_dialog($selector, $data, NULL, $dialog_type);
+  return array('#type' => 'ajax', '#commands' => $commands);
+}
+
+function intstrux_highwire_field_browse() {
+
+  // default result
+
+
+  $filter_form = drupal_get_form('intstrux_highwire_field_filter_form');
+  $filter_form = drupal_render($filter_form);
+
+  return $filter_form;
+}
+
+function intstrux_highwire_field_deliver_dialog($page) {
+  if (is_array($page)) {
+    $page = drupal_render($page);
+  }
+  $output = '<html><head><title></title>' . drupal_get_css() . drupal_get_js() . '</head><body class="dialog">' . $page . '</body></html>';
+  print $output;
+}
 
 /**
  * Implements hook_field_info().
@@ -284,6 +340,12 @@ function intstrux_highwire_field_field_formatter_info() {
     'label' => t('Article description'),
     'description' => t('Display the entire content of the referenced article.'),
     'field types' => array('highwire_article'),
+  );    
+  
+  $formatters['intstrux_highwire_precis'] = array(
+    'label' => t('Article precis'),
+    'description' => t('Display the precis of the referenced article.'),
+    'field types' => array('highwire_article'),
   );  
   
   $formatters['intstrux_highwire_pmid'] = array(
@@ -326,13 +388,22 @@ function intstrux_highwire_field_field_formatter_view($entity_type, $entity, $fi
     case 'intstrux_highwire_abstract':
       if(isset($article_id)) {
         $abstract = intstrux_highwire_article_content_load($article_id, 'abstract', 'html');
+        $abstract = intstrux_highwire_remove_tag('h1', 'id', 'article-title-1', $abstract);
         $element[0]['#markup'] = $abstract;
       }
       break;
     case 'intstrux_highwire_full':
       if(isset($article_id)) {
         $full = intstrux_highwire_article_content_load($article_id, 'full', 'html');
+        $full = intstrux_highwire_remove_tag('h1', 'id', 'article-title-1', $full);
         $element[0]['#markup'] = $full;
+      }
+      break;    
+    case 'intstrux_highwire_precis':
+      if(isset($article_id)) {
+        $precis = intstrux_highwire_article_content_load($article_id, 'precis', 'html');
+        $precis = intstrux_highwire_remove_tag('h1', 'id', 'article-title-1', $precis);
+        $element[0]['#markup'] = $precis;
       }
       break;
     case 'intstrux_highwire_pmid':
@@ -378,4 +449,131 @@ function intstrux_highwire_field_node_presave($node) {
       $node->title = check_plain($article['atom:entry']['atom:title']['$']);  
     }
   }
+}
+
+/**
+ * Creates a Drupal Ajax 'intstrux_ui_dialog' command.
+ *
+ * The 'intstrux_ui_dialog' command instructs the client to display a jQuery UI
+ * Dialog box.
+ *
+ * This command is implemented by Drupal.ajax.prototype.commands.ui()
+ * defined in intstrux_highwire/intstrux_highwire_field/highwire.js.
+ *
+ * @param $title
+ *   Optional. String, title of dialog.
+ * @param $id
+ *   Optional. Additional id to put on dialog.
+ * @param $selector
+ *   Selector of the element that should be made into a dialog.
+ * @param $data
+ *   Path if $iframe is TRUE.
+ *   Html if $iframe is FALSE.
+ * @param $field_rel
+ *   Rel attribute of the corresponding field.
+ * @param $settings
+ *   TODO
+ * @param $iframe
+ *   Optional. Boolean, if the dialog should contain an iframe or other html content
+ *
+ * @return
+ *   An array suitable for use with the ajax_render() function.
+ */
+function ajax_command_intstrux_dialog($title = 'Dialog', $id = NULL, $selector = '<div>', $data, $field_rel, $settings = NULL, $iframe = FALSE) {
+  return array(
+    'command' => 'intstrux_ui_dialog',
+    'title' => $title,
+    'id' => $id,
+    'selector' => $selector,
+    'data' => $data,
+    'field_rel' => $field_rel,
+    'settings' => $settings,
+    'iframe' => $iframe,
+  );
+}
+
+/**
+ * Creates a Drupal Ajax 'intstrux_ui_close_dialog' command.
+ *
+ * The 'dialog' command instructs the client to close a jQuery UI
+ * Dialog box.
+ *
+ * This command is implemented by Drupal.ajax.prototype.commands.ui()
+ * defined in intstrux_highwire/intstrux_highwire_field/highwire.js.
+ *
+ * @param $selector
+ *   Selector of the dialog that should be closed.
+ * @param $data
+ *   Data to send on close, depends on dialog type.
+ * @param $settings
+ *   TODO
+ * @param $dialog_type
+ *   Type of dialog to close.
+ *
+ * @return
+ *   An array suitable for use with the ajax_render() function.
+ */
+function ajax_command_intstrux_close_dialog($selector = '<div>', $data, $settings = NULL, $dialog_type) {
+  return array(
+    'command' => 'intstrux_ui_close_dialog',
+    'selector' => $selector,
+    'data' => $data,
+    'settings' => $settings,
+    'dialog_type' => $dialog_type,
+  );
+}
+
+/**
+ * Filter form for article browser.
+ */
+function intstrux_highwire_field_filter_form($form, &$form_state) {
+  $form['search'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Filter Articles'),
+    '#collapsible' => TRUE,
+    '#collapsed' => empty($_SESSION['intstrux_highwire_field_filter']) ? TRUE : FALSE,
+  );
+
+  $keywords = '';
+
+  if (!empty($_SESSION['intstrux_highwire_field_filter']['keywords'])) {
+    $keywords = $_SESSION['intstrux_highwire_field_filter']['keywords'];
+  }
+
+  $form['search']['keywords'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Keywords'),
+    '#size' => 25,
+    '#default_value' => $keywords,
+  );
+
+  $form['search']['search'] = array(
+    '#type' => 'radios',
+    '#title' => t('Search in'),
+    '#options' => array(
+      'titles_desc' => t('Titles and descriptions'), 
+      'titles' => t('Titles'), 
+      'abstracts' => t('Abstracts'), 
+      'descriptions' => t('Descriptions'), 
+      'authors' => t('Authors'), 
+    ),
+    '#default_value' => isset($_SESSION['intstrux_highwire_field_filter']['search']) ? $_SESSION['intstrux_highwire_field_filter']['search'] : 'titles_desc',
+    '#attributes' => array(
+      'class' => array('search-radio'),
+    ),
+  );
+
+  $form['search']['submit'] = array(
+    '#type' => 'submit',
+    '#name' => 'submit',
+    '#default_value' => t('Filter'),
+  );
+
+  $form['search']['reset'] = array(
+    '#type' => 'submit',
+    '#name' => 'reset',
+    '#default_value' => t('Reset'),
+  );
+
+  return $form;
 }
