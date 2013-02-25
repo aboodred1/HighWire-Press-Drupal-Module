@@ -62,8 +62,6 @@
     var new_content;
     var title = response.title;
     var loading;
-	
-	console.log(response);
 
     var settings = response.settings || ajax.settings || Drupal.settings;
     Drupal.intstrux_highwire_field.dialog_field_rel = response.field_rel;
@@ -145,8 +143,17 @@
     }
   }
   
-  Drupal.ajax.prototype.commands.intstrux_ui_dialog_close = function (ajax, response, status) {
-    alert('open');
+  Drupal.ajax.prototype.commands.intstrux_ui_close_dialog = function (ajax, response, status) {
+    var dialog = parent.jQuery(response.selector);
+    var dialog_type = response.dialog_type;
+
+    switch (dialog_type) {
+      case 'browse':
+        Drupal.intstrux_highwire_field.submit_browse(dialog.attr('rel'), response.data);
+        break;
+    }
+
+    dialog.dialog('close');
   }
 
   

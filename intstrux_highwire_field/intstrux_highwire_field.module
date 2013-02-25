@@ -268,24 +268,13 @@ function intstrux_highwire_field_ajax_browse_dialog_callback($form, $form_state)
 }
 
 function intstrux_highwire_field_ajax_browse_dialog_close_callback($form, $form_state) {
-  $selector = '#browse-dialog';
+  $selector = '#highwire-browse-dialog';
   $data = check_plain($form_state['values']['title']) . ' [id:' . check_plain($form_state['values']['id']) . ']';
   $dialog_type = 'browse';
 
   $commands = array();
   $commands[] = ajax_command_intstrux_close_dialog($selector, $data, NULL, $dialog_type);
   return array('#type' => 'ajax', '#commands' => $commands);
-}
-
-function intstrux_highwire_field_browse() {
-
-  // default result
-
-
-  $filter_form = drupal_get_form('intstrux_highwire_field_filter_form');
-  $filter_form = drupal_render($filter_form);
-
-  return $filter_form;
 }
 
 function intstrux_highwire_field_deliver_dialog($page) {
@@ -417,6 +406,23 @@ function intstrux_highwire_field_field_formatter_view($entity_type, $entity, $fi
 }
 
 /**
+ * Implementation of hook_theme().
+ */
+function intstrux_highwire_field_theme() {
+  $theme = array(
+    'intstrux_highwire_field_browse_item' => array(
+      'variables' => array('item' => NULL),
+      'file' => 'theme.inc',
+    ),
+    'intstrux_highwire_field_browse_items' => array(
+      'variables' => array('item' => NULL),
+      'file' => 'theme.inc',
+    ),
+  );
+  return $theme;
+}
+
+/**
  * Theme function returning a article field.
  */
 function theme_intstrux_highwire_field_browser($element) {
@@ -523,6 +529,120 @@ function ajax_command_intstrux_close_dialog($selector = '<div>', $data, $setting
   );
 }
 
+function intstrux_highwire_field_browse() {
+  global $pager_page_array, $pager_total, $pager_total_items;
+  
+  drupal_add_js(drupal_get_path('module', 'intstrux_highwire_field') . '/js/highwire.js');
+
+  $page_increment = 12;
+  
+  $page = isset($_GET['page']) ? $_GET['page'] : 0;
+  
+  $result = array();
+  
+  if (isset($_SESSION['intstrux_highwire_field_filter'])) {
+  
+    $hw = intstrux_highwire_initialize(NULL, 'opensearch/results');
+  
+    if($hw) {
+
+      // required value is 1
+      $hw->param('v', '1');
+      // output should be returned in JSON format.
+      $hw->param('type', 'json');
+
+      $string = $_SESSION['intstrux_highwire_field_filter']['keywords'];
+
+      switch ($_SESSION['intstrux_highwire_field_filter']['search']) {
+        case 'titles':
+          // the searchTerms CQL search query, search by title
+          $hw->param('cql', 'dc.title any (' . $string . ')');
+          break;
+        case 'abstracts':
+          // the searchTerms CQL search query, search by abstract
+          $hw->param('cql', 'dc.abstract any (' . $string . ')');
+          break;
+        case 'descriptions':
+          // the searchTerms CQL search query, search by description
+          $hw->param('cql', 'dc.description any (' . $string . ')');
+          break;
+        case 'authors':
+          // the searchTerms CQL search query, search by author
+          $hw->param('cql', 'dc.creator = (' . $string . ')');
+          break;
+        case 'titles_desc':
+        default: 
+          // the searchTerms CQL search query
+          $hw->param('cql', $string);
+          break;
+      }
+      
+      // display number of items
+      $hw->param('count', $page_increment);
+      // Start Index for pager
+      $hw->param('start', $page * $page_increment);
+      // set cache expiration
+      $hw->parse(variable_get('intstrux_highwire_cache_lifetime', -1));
+
+      $result = drupal_json_decode($hw->getContent());
+    }
+  }
+
+  $items = array();
+  
+  if(count($result)) {
+    if(isset($result['atom:feed']['atom:entry'])) {
+      
+      // pager
+      $total_entries = $result['atom:feed']['opensearch:totalResults']['$'];
+      $pager_total_items[0] = $total_entries;
+      $pager_page_array[0] = $page;
+      $pager_total[0] = ceil($total_entries / $page_increment);
+  
+      // if there's only one item, create key 0
+      if(!isset($result['atom:feed']['atom:entry'][0])) {
+        $atom_entry = $result['atom:feed']['atom:entry'];
+        unset($result['atom:feed']['atom:entry']);
+        $result['atom:feed']['atom:entry'] = array(
+          '0' => $atom_entry,
+        );
+      }
+
+      foreach($result['atom:feed']['atom:entry'] as $entry){
+        $item = array();
+        $item['article_id'] = intstrux_highwire_parse_pmid($entry);
+        // some articles title have two lines
+        $article_title = '';
+        if(isset($entry['atom:title']['$'])) {
+          $article_title = check_plain($entry['atom:title']['$']);
+        } elseif(isset($entry['atom:title']['div'])) {
+          if(is_array($entry['atom:title']['div']['$'])) {
+            $article_title = implode(' ', $entry['atom:title']['div']['$']);
+          } else {
+            $article_title = $entry['atom:title']['div']['$'];
+          }
+        }
+
+        $item['article_title'] = $article_title;
+        $items[] = $item;
+      }
+    }
+  }
+  
+  $pager_vars = array(
+    'tags' => NULL,
+    'element' => 0,
+    'parameters' => array(),
+    'quantity' => $page_increment,
+  );
+
+  $pager = theme_pager($pager_vars);
+  $filter_form = drupal_get_form('intstrux_highwire_field_filter_form');
+  $filter_form = drupal_render($filter_form);
+
+  return '<div class="highwire-browse-table">' . $filter_form . $pager . theme('intstrux_highwire_field_browse_items', array('items' => $items)) . $pager . '</div>';;
+}
+
 /**
  * Filter form for article browser.
  */
@@ -576,4 +696,82 @@ function intstrux_highwire_field_filter_form($form, &$form_state) {
   );
 
   return $form;
+}
+
+/**
+ * Submit callback for intstrux_highwire_field_filter_form().
+ *
+ * Set session variables based on selection.
+ *
+ * @see intstrux_highwire_field_browse().
+ */
+function intstrux_highwire_field_filter_form_submit($form, &$form_state) {
+
+  $keywords = $form_state['values']['keywords'];
+  $search = $form_state['values']['search'];
+
+  // Reset the form if keywords are empty or reset button was clicked.
+  if ((empty($keywords)) || $form_state['clicked_button']['#name'] == 'reset') {
+    unset($_SESSION['intstrux_highwire_field_filter']);
+    return;
+  }
+
+  // The only thing we do is set session variables based on the selection.
+  // Browse callback will take care of the rest.
+  $_SESSION['intstrux_highwire_field_filter']['keywords'] = $keywords;
+  $_SESSION['intstrux_highwire_field_filter']['search'] = $search;
+}
+
+/**
+ * Browse form. Will return a form for one article item.
+ *
+ * @see intstrux_highwire_field_forms().
+ */
+function intstrux_highwire_field_browser_form($form, &$form_state, $item) {
+  $form['id'] = array(
+    '#type' => 'value',
+    '#default_value' => $item['article_id'],
+  );
+  $form['title'] = array(
+    '#type' => 'value',
+    '#default_value' => $item['article_title'],
+  );
+  $form['text_title'] = array(
+    '#prefix' => '<div class="article-title">',
+    '#suffix' => '</div>',
+    '#markup' => $item['article_title'],
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#name' => 'submit-' . $item['article_id'],
+    '#default_value' => t('Select'),
+    '#ajax' => array(
+      'callback' => 'intstrux_highwire_field_ajax_browse_dialog_close_callback',
+    ),
+  );
+  return $form;
+}
+
+/**
+ * Submit callback for intstrux_highwire_field_browser_form().
+ *
+ * Just take the value and pass it to modalframe.
+ */
+function intstrux_highwire_field_browser_form_submit($form, &$form_state) {
+  // The value is "title [id:ID]" - recognised by validating element.
+  $return['selected'] = check_plain($form_state['values']['title']) . ' [id:' . check_plain($form_state['values']['id']) . ']';
+}
+
+/**
+ * Implementation of hook_forms().
+ *
+ * Needed to help Drupal determine which form to render - every video item in
+ * the browser is a separate form.
+ */
+function intstrux_highwire_field_forms($form_id, $args) {
+  $forms = array();
+  if (strpos($form_id, "intstrux_highwire_field_browser_form") === 0) {
+    $forms[$form_id] = array('callback' => 'intstrux_highwire_field_browser_form');
+  }
+  return $forms;
 }
