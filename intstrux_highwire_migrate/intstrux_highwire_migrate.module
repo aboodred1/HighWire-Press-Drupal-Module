@@ -1,0 +1,15 @@
+<?php
+
+/**
+ * @file
+ * Defines intstrux highwire migrate imports.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function intstrux_highwire_migrate_menu() {
+  $items = array();
+  
+  return $items;
+}
