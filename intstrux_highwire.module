@@ -26,6 +26,13 @@ function intstrux_highwire_menu() {
     'file' => 'intstrux_highwire.admin.inc',
   );
   
+  $items['admin/config/content/highwire/general'] = array(
+    'title' => 'General',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'access arguments' => array('administer intstrux highwire settings'),
+    'weight' => -10,
+  );
+  
   return $items;
 }
 

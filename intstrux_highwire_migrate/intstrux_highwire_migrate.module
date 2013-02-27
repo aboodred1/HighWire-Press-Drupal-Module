@@ -11,5 +11,92 @@
 function intstrux_highwire_migrate_menu() {
   $items = array();
   
+  $items['admin/config/content/highwire/migrate'] = array(
+    'title' => 'Migrate',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('intstrux_highwire_migrate_form'),
+    'access arguments' => array('administer intstrux highwire settings'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 10,
+  );
+  
   return $items;
+}
+
+function intstrux_highwire_migrate_form($form, &$form_state) {
+  $form = array();
+  
+  $form['description'] = array(
+    '#type' => 'markup',
+    '#markup' => t('Lorem Ipsum is simply dummy text of the printing and typesetting industry.'),
+  );
+  
+  
+  $form['actions'] = array(
+    '#type' => 'actions'
+  );
+  
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Migrate'),
+  );
+  
+  return $form;
+}
+
+function intstrux_highwire_migrate_form_submit() {
+    
+  $batch = array(
+    'title' => t('Processing HighWire migration'),
+    'operations' => array(
+      array('intstrux_highwire_migrate_batch_start', array()),
+    ),
+    'finished' => 'intstrux_highwire_migrate_batch_finish',
+    'init_message' => t('HighWire migration is starting.'),
+    'error_message' => t('HighWire migration has encountered an error.'),
+    'progress_message' => t('Current: @current | Remaining: @remaining | Total: @total | Percentage: @percentage | Estimate: @estimate | Elapsed: @elapsed')
+  );
+
+  batch_set($batch);
+}
+
+function intstrux_highwire_migrate_batch_start(&$context) {
+  if (!isset($context['sandbox']['iteration'])) {
+    $context['sandbox']['iteration'] = 0;
+  }
+  $context['sandbox']['iteration']++;  
+  $context['finished'] = $context['sandbox']['iteration']/10000;
+}
+
+function intstrux_highwire_migrate_batch_finish($success, $results, $operations) {
+  if ($success) {
+    //$results['count_before']
+    //$results['count_after']
+    drupal_set_message(t('Thanks. results: !results', array('!results' => print_r($results, true))));
+  } else {
+    $error_operation = reset($operations);
+    drupal_set_message(t('An error occurred while processing @operation with arguments : @args', array('@operation' => $error_operation[0], '@args' => print_r($error_operation[0], TRUE))));
+  }
+}
+
+/**
+ * Implements hook_cron().
+ */
+function intstrux_highwire_migrate_cron() {
+  drupal_set_message(t('this is awesome man executed at %time', array('%time' => date_iso8601(time(0)))));
+}
+
+/**
+ * Implements hook_cron_queue_info().
+ */
+function intstrux_highwire_migrate_cron_queue_info() {
+  $queues['highwire_migrate_queue'] = array(
+    'worker callback' => 'intstrux_highwire_migrate_queue_report',
+    'time' => 1, // One second max runtime per cron run.
+  );
+  return $queues;
+}
+
+function intstrux_highwire_migrate_queue_report($item) {
+  drupal_set_message(t('Queue highwire migrate processed item with sequence @sequence created at @time', array('@sequence' => $item->sequence, '@time' => date_iso8601($item->created))));
 }
