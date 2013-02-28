@@ -29,9 +29,15 @@ function intstrux_highwire_migrate_form($form, &$form_state) {
   
   $form['description'] = array(
     '#type' => 'markup',
-    '#markup' => t('Lorem Ipsum is simply dummy text of the printing and typesetting industry.'),
+    '#markup' => '<p>' . t('Lorem Ipsum is simply dummy text of the printing and typesetting industry.') . '</p>',
   );
   
+  $queue = DrupalQueue::get('highwire_migrate_queue');
+  
+  $form['current_queue_status'] = array(
+    '#type' => 'markup',
+    '#markup' => '<p>' . t('There are currently %queue items in HighWire migrate queue', array('%queue' => $queue->numberOfItems())) . '</p>',
+  );
   
   $form['actions'] = array(
     '#type' => 'actions'
@@ -50,7 +56,7 @@ function intstrux_highwire_migrate_form_submit() {
   $batch = array(
     'title' => t('Processing HighWire migration'),
     'operations' => array(
-      array('intstrux_highwire_migrate_batch_start', array()),
+      array('intstrux_highwire_migrate_batch_start', array('highwire_migrate_queue')),
     ),
     'finished' => 'intstrux_highwire_migrate_batch_finish',
     'init_message' => t('HighWire migration is starting.'),
@@ -61,19 +67,37 @@ function intstrux_highwire_migrate_form_submit() {
   batch_set($batch);
 }
 
-function intstrux_highwire_migrate_batch_start(&$context) {
-  if (!isset($context['sandbox']['iteration'])) {
-    $context['sandbox']['iteration'] = 0;
+function intstrux_highwire_migrate_batch_start($queue_name, &$context) {
+  
+  // Grab the defined cron queues.
+  $queues = module_invoke_all('cron_queue_info');
+  drupal_alter('cron_queue_info', $queues);
+  if (!($info = $queues[$queue_name])) return;
+  $queue = DrupalQueue::get($queue_name);
+  
+  // Work off queues.
+  if (!isset($context['sandbox']['completed'])) {
+    $context['sandbox']['completed'] = 0;
+    $context['sandbox']['total'] = $queue->numberOfItems();
   }
-  $context['sandbox']['iteration']++;  
-  $context['finished'] = $context['sandbox']['iteration']/10000;
+  
+  $function = $info['worker callback'];
+  $end = time() + (isset($info['time']) ? $info['time'] : 15);
+  while (time() < $end && ($item = $queue->claimItem())) {
+    $function($item->data);
+    $queue->deleteItem($item);
+    $context['results'][] = $item;
+    $context['sandbox']['completed']++;
+  }
+  
+  // Update Batch API status.
+  $context['finished'] = empty($context['sandbox']['total']) ? 1 : $context['sandbox']['completed'] / $context['sandbox']['total'];
+  $context['message'] = t('Now processing queue !queue...', array('!queue' => $queue_name));  
 }
 
 function intstrux_highwire_migrate_batch_finish($success, $results, $operations) {
   if ($success) {
-    //$results['count_before']
-    //$results['count_after']
-    drupal_set_message(t('Thanks. results: !results', array('!results' => print_r($results, true))));
+    drupal_set_message(t('@count results processed. Check !log for more details.', array('@count' => count($results), '!log' => l('Recent log messages', 'admin/reports/dblog'))));
   } else {
     $error_operation = reset($operations);
     drupal_set_message(t('An error occurred while processing @operation with arguments : @args', array('@operation' => $error_operation[0], '@args' => print_r($error_operation[0], TRUE))));
@@ -84,6 +108,8 @@ function intstrux_highwire_migrate_batch_finish($success, $results, $operations)
  * Implements hook_cron().
  */
 function intstrux_highwire_migrate_cron() {
+  
+  $queue = DrupalQueue::get('highwire_migrate_queue');
   
   $query = db_select('node', 'n')
            ->fields('n', array('nid', 'vid', 'title'))
@@ -106,39 +132,14 @@ function intstrux_highwire_migrate_cron() {
 
   if($result) {
     foreach($result as $nid => $node) {
-      if($article_id = intstrux_highwire_migrate_search($node->article_title)) {
-
-        // set article id
-        $entity = new stdClass();
-        $entity->nid = $node->nid;
-        $entity->vid = $node->vid;
-        $entity->type  = 'page_html';
-        $entity->original = NULL;
-        $entity->field_article_pmid['und'][0]['article_id'] = $article_id;
-        field_attach_presave('node', $entity);
-        field_attach_update('node', $entity);
-
-        // set field_status to "Found"
-        $entity = new stdClass();
-        $entity->nid = $node->nid;
-        $entity->vid = $node->vid;
-        $entity->type  = 'page_html';
-        $entity->original = NULL;
-        $entity->field_status['und'][0]['value'] = 1;
-        field_attach_presave('node', $entity);
-        field_attach_update('node', $entity);
-       
-      } else {
-        // set field_status to "Not Found"
-        $entity = new stdClass();
-        $entity->nid = $node->nid;
-        $entity->vid = $node->vid;
-        $entity->type  = 'page_html';
-        $entity->original = NULL;
-        $entity->field_status['und'][0]['value'] = 0;
-        field_attach_presave('node', $entity);
-        field_attach_update('node', $entity);
-      }
+      $item = new stdClass();
+      $item->nid = $node->nid;
+      $item->vid = $node->vid;
+      $item->title = $node->title;
+      $item->article_title = $node->article_title;
+      $item->created = time();
+      $item->sequence = $nid;
+      $queue->createItem($item);
     }
   }
 }
@@ -148,14 +149,55 @@ function intstrux_highwire_migrate_cron() {
  */
 function intstrux_highwire_migrate_cron_queue_info() {
   $queues['highwire_migrate_queue'] = array(
-    'worker callback' => 'intstrux_highwire_migrate_queue_report',
+    'worker callback' => 'intstrux_highwire_migrate_queue_process',
     'time' => 15,
   );
   return $queues;
 }
 
-function intstrux_highwire_migrate_queue_report($item) {
-  drupal_set_message(t('Queue highwire migrate processed item with sequence @sequence created at @time', array('@sequence' => $item->sequence, '@time' => date_iso8601($item->created))));
+function intstrux_highwire_migrate_queue_process($item) {
+
+  if($article_id = intstrux_highwire_migrate_search($item->article_title)) {
+
+    // set article id
+    $entity = new stdClass();
+    $entity->nid = $item->nid;
+    $entity->vid = $item->vid;
+    $entity->type  = 'page_html';
+    $entity->original = NULL;
+    $entity->field_article_pmid['und'][0]['article_id'] = $article_id;
+    field_attach_presave('node', $entity);
+    field_attach_update('node', $entity);
+
+    // set field_status to "Found"
+    $entity = new stdClass();
+    $entity->nid = $item->nid;
+    $entity->vid = $item->vid;
+    $entity->type  = 'page_html';
+    $entity->original = NULL;
+    $entity->field_status['und'][0]['value'] = 1;
+    field_attach_presave('node', $entity);
+    field_attach_update('node', $entity);
+
+    // drupal_set_message(t('Article with pmid (@pmid) and nid (@nid) was found and merged at @time', array('@pmid' => $article_id, '@nid' => $item->sequence, '@time' => date_iso8601($item->created))));
+
+    watchdog('cron_intstrux_highwire', 'Article with pmid (@pmid) and nid (@nid) was found and merged at @time', array('@pmid' => $article_id, '@nid' => $item->sequence, '@time' => date_iso8601($item->created)));
+
+  } else {
+    // set field_status to "Not Found"
+    $entity = new stdClass();
+    $entity->nid = $item->nid;
+    $entity->vid = $item->vid;
+    $entity->type  = 'page_html';
+    $entity->original = NULL;
+    $entity->field_status['und'][0]['value'] = 0;
+    field_attach_presave('node', $entity);
+    field_attach_update('node', $entity);
+
+    watchdog('cron_intstrux_highwire', 'Article with nid (@nid) was not found @time', array('@nid' => $item->sequence, '@time' => date_iso8601($item->created)));
+  }
+  
+  // drupal_set_message(t('Queue highwire migrate processed item with sequence @sequence created at @time', array('@sequence' => $item->sequence, '@time' => date_iso8601($item->created))));
 }
 
 function intstrux_highwire_migrate_search($title) {
