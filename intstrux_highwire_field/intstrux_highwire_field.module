@@ -441,7 +441,7 @@ function intstrux_highwire_field_node_presave($node) {
   foreach($node as $delta => $item) {
     $field = field_info_field($delta);
     if(isset($field['type']) && $field['type'] == 'highwire_article') {
-      $article_id = $node->{$delta}[$lang][0]['article_id'];
+      $article_id = (isset($node->{$delta}[$lang][0]))? $node->{$delta}[$lang][0]['article_id'] : 0;
       break;
     }
   }

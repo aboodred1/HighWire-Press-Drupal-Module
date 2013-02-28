@@ -5,6 +5,7 @@
  * Defines intstrux highwire migrate imports.
  */
 
+
 /**
  * Implements hook_menu().
  */
@@ -83,7 +84,63 @@ function intstrux_highwire_migrate_batch_finish($success, $results, $operations)
  * Implements hook_cron().
  */
 function intstrux_highwire_migrate_cron() {
-  drupal_set_message(t('this is awesome man executed at %time', array('%time' => date_iso8601(time(0)))));
+  
+  $query = db_select('node', 'n')
+           ->fields('n', array('nid', 'vid', 'title'))
+           ->condition('n.status', '1')
+           ->condition('n.type', 'page_html', 'LIKE')
+           ->extend('PagerDefault')
+           ->limit(50);
+  // article title field
+  $query->leftJoin('field_data_field_article_title', 'at', 'n.nid = at.entity_id');
+  $query->addField('at', 'field_article_title_value', 'article_title');
+  // status field
+  $query->leftJoin('field_data_field_status', 'fs', 'n.nid = fs.entity_id AND fs.entity_type = :type AND fs.bundle = :bundle', array(
+    ':type' => 'node',
+    ':bundle' => 'page_html',
+  ));
+  $query->condition(db_or()->condition('fs.field_status_value', '0')->isNull('fs.field_status_value'));
+  $query->addField('fs', 'field_status_value', 'status');
+  
+  $result =  $query->execute()->fetchAllAssoc('nid');
+
+  if($result) {
+    foreach($result as $nid => $node) {
+      if($article_id = intstrux_highwire_migrate_search($node->article_title)) {
+
+        // set article id
+        $entity = new stdClass();
+        $entity->nid = $node->nid;
+        $entity->vid = $node->vid;
+        $entity->type  = 'page_html';
+        $entity->original = NULL;
+        $entity->field_article_pmid['und'][0]['article_id'] = $article_id;
+        field_attach_presave('node', $entity);
+        field_attach_update('node', $entity);
+
+        // set field_status to "Found"
+        $entity = new stdClass();
+        $entity->nid = $node->nid;
+        $entity->vid = $node->vid;
+        $entity->type  = 'page_html';
+        $entity->original = NULL;
+        $entity->field_status['und'][0]['value'] = 1;
+        field_attach_presave('node', $entity);
+        field_attach_update('node', $entity);
+       
+      } else {
+        // set field_status to "Not Found"
+        $entity = new stdClass();
+        $entity->nid = $node->nid;
+        $entity->vid = $node->vid;
+        $entity->type  = 'page_html';
+        $entity->original = NULL;
+        $entity->field_status['und'][0]['value'] = 0;
+        field_attach_presave('node', $entity);
+        field_attach_update('node', $entity);
+      }
+    }
+  }
 }
 
 /**
@@ -92,11 +149,39 @@ function intstrux_highwire_migrate_cron() {
 function intstrux_highwire_migrate_cron_queue_info() {
   $queues['highwire_migrate_queue'] = array(
     'worker callback' => 'intstrux_highwire_migrate_queue_report',
-    'time' => 1, // One second max runtime per cron run.
+    'time' => 15,
   );
   return $queues;
 }
 
 function intstrux_highwire_migrate_queue_report($item) {
   drupal_set_message(t('Queue highwire migrate processed item with sequence @sequence created at @time', array('@sequence' => $item->sequence, '@time' => date_iso8601($item->created))));
+}
+
+function intstrux_highwire_migrate_search($title) {
+  if($title) {
+    $hw = intstrux_highwire_initialize(NULL, 'opensearch/results');
+
+    if($hw) {
+      // required value is 1
+      $hw->param('v', '1');
+      // the searchTerms CQL search query, search by title
+      $hw->param('cql', 'dc.title = (' . $title . ')');
+      // output should be returned in JSON format.
+      $hw->param('type', 'json');
+      // set cache expiration
+      $hw->parse(variable_get('intstrux_highwire_cache_lifetime', -1));
+  
+      $result = drupal_json_decode($hw->getContent());
+
+      if(isset($result['atom:feed']['atom:entry'])) {
+        $entries = $result['atom:feed']['atom:entry'];
+        $entry = $entries[0];
+        $id = intstrux_highwire_parse_pmid($entry);
+        return $id;
+      }
+    }
+  } 
+  
+  return FALSE;
 }
