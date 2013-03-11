@@ -294,11 +294,31 @@ function intstrux_highwire_field_field_info() {
      'label' => t('HighWire Article'),
      'description' => t('Browse and select article at HighWire Press.'),
      'settings' => array(),
-     'instance_settings' => array(),
+     'instance_settings' => array(
+       'highwire_article_uploader' => '',
+     ),
      'default_widget' => 'intstrux_highwire_field_browser',
      'default_formatter' => 'intstrux_highwire_default',
     ),
   );
+}
+
+/**
+ * Implements hook_field_settings_form().
+ */
+function intstrux_highwire_field_field_instance_settings_form($field, $instance) {
+  $form = array();
+  
+  $form['highwire_article_uploader'] = array(
+    '#type' => 'select',
+    '#title' => t('HighWire field HTML uploader'),
+    '#default_value' => isset($instance['settings']['highwire_article_uploader']) ? $instance['settings']['highwire_article_uploader'] : NULL,
+    '#options' => intstrux_highwire_fields_list(),
+    '#required' => TRUE,
+    '#description' => t('Select HTML file field to store HighWire article in it.'),
+  );
+  
+  return $form;
 }
 
 /**
@@ -438,9 +458,13 @@ function intstrux_highwire_field_node_presave($node) {
 
   $article_id = 0;
   
+  $article_instance = array();
+  
   foreach($node as $delta => $item) {
     $field = field_info_field($delta);
+
     if(isset($field['type']) && $field['type'] == 'highwire_article') {
+      $article_instance = field_info_instance('node', $delta, $node->type);
       $article_id = (isset($node->{$delta}[$lang][0]))? $node->{$delta}[$lang][0]['article_id'] : 0;
       break;
     }
@@ -449,6 +473,13 @@ function intstrux_highwire_field_node_presave($node) {
   if($article_id) {
     // load article by $article_id
     $article = intstrux_highwire_article_load($article_id);
+    $article_full = intstrux_highwire_article_content_load($article_id, 'full', 'html');
+
+    $field_htmlfile = $article_instance['settings']['highwire_article_uploader'];
+
+    // create temparary html file in temp folder
+    // save file using drupal API 
+    // get fid and assign it to $field_htmlfile and add field to node 
   
     if(isset($article['atom:entry'])) {
       // save new title based on article title

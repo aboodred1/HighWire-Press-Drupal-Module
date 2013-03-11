@@ -198,6 +198,43 @@ function intstrux_highwire_article_content_load($article_id, $view = 'abstract',
 }
 
 /**
+ * Retrieve all used fields.
+ *
+ * @return
+ *   Array value of field_type options.
+ */
+function intstrux_highwire_fields_list() {
+  $instances = field_info_instances();
+  $field_types = field_info_field_types();
+  $bundles = field_info_bundles();
+
+  $rows = array();
+  foreach ($instances as $entity_type => $type_bundles) {
+    foreach ($type_bundles as $bundle => $bundle_instances) {
+      foreach ($bundle_instances as $field_name => $instance) {
+        $field = field_info_field($field_name);
+        // Initialize the row if we encounter the field for the first time.
+        if (!isset($rows[$field_name])) {
+          $rows[$field_name][0] = $field_name;
+          $rows[$field_name][1] = $field_types[$field['type']]['label'];
+        }
+
+        $rows[$field_name][2][] = $bundles[$entity_type][$bundle]['label'];
+      }
+    }
+  }
+  foreach ($rows as $field_name => $cell) {
+    $rows[$field_name] = t('@type_label: @field_name (@used_in)', array(
+      '@type_label' => $rows[$field_name][1],
+      '@field_name' => $field_name,
+      '@used_in' => implode(', ', $cell[2]),
+    ));
+  }
+  
+  return $rows;
+}
+
+/**
  * Parse a field value in form of "title [id:123]" and return 123
  *
  * @param $id
