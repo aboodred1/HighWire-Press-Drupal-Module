@@ -473,17 +473,43 @@ function intstrux_highwire_field_node_presave($node) {
   if($article_id) {
     // load article by $article_id
     $article = intstrux_highwire_article_load($article_id);
+
     $article_full = intstrux_highwire_article_content_load($article_id, 'full', 'html');
 
-    $field_htmlfile = $article_instance['settings']['highwire_article_uploader'];
+    $article_uploader_field = $article_instance['settings']['highwire_article_uploader'];
+    
+    $htmlfile_name = 'article_' . $node->nid . '.html';
 
-    // create temparary html file in temp folder
-    // save file using drupal API 
-    // get fid and assign it to $field_htmlfile and add field to node 
+    $htmlfile_info = field_info_field($article_uploader_field);
+   
+    $htmlfile_instance = field_info_instance('node', $article_uploader_field, $node->type);
+    
+    $htmlfile = NULL;
+
+    if($htmlfile_info && $htmlfile_instance) {
+
+      $htmlfile_destination = file_field_widget_uri($htmlfile_info, $htmlfile_instance);
+      
+      if($article_full) {
+        //$htmlfile = file_save_data($node->title, $htmlfile_destination . $htmlfile_name, FILE_EXISTS_RENAME);
+        $htmlfile = file_save_data($article_full, $htmlfile_destination . $htmlfile_name, FILE_EXISTS_REPLACE);
+      }
+    }
   
     if(isset($article['atom:entry'])) {
       // save new title based on article title
-      $node->title = check_plain($article['atom:entry']['atom:title']['$']);  
+      $node->title = check_plain($article['atom:entry']['atom:title']['$']);
+    }
+
+    if($htmlfile) {
+      $node->{$article_uploader_field}[$lang][0] = array(
+        'fid' => $htmlfile->fid,
+        'display' => 1,
+        'description' => '',
+        'upload_button' => 'Upload',
+        'remove_button' => 'Remove',
+        'upload' => '',
+      );
     }
   }
 }
