@@ -422,6 +422,38 @@ function intstrux_highwire_field_field_formatter_view($entity_type, $entity, $fi
       break;
   }
   
+  // create html file if cache expire
+  if(isset($article_id)) {
+    $cache = cache_get('hw:article:' . $article_id, 'cache_highwire');
+ 
+    if($cache && $cache->expire < $_SERVER['REQUEST_TIME']) {
+      // create file with full view
+      $article_full = intstrux_highwire_article_content_load($article_id, 'full', 'html');
+
+      $article_uploader_field = 'field_htmlfile';
+    
+      $htmlfile_name = 'article_' . rand() . '.html';
+
+      $htmlfile_info = field_info_field($article_uploader_field);
+   
+      $htmlfile_instance = field_info_instance('node', $article_uploader_field, 'page_html');
+    
+      $htmlfile = NULL;
+
+      if($htmlfile_info && $htmlfile_instance) {
+
+        $htmlfile_destination = file_field_widget_uri($htmlfile_info, $htmlfile_instance);
+      
+        if($article_full) {
+          $htmlfile = file_save_data($article_full, $htmlfile_destination . $htmlfile_name, FILE_EXISTS_REPLACE);
+        }
+      }
+    }
+
+  }
+  
+  
+  
   return $element;
 }
 

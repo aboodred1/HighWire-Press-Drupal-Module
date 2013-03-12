@@ -145,7 +145,7 @@ function intstrux_highwire_verify_key($url = NULL, $key = NULL) {
  * Article object or FALSE if article not found.
  */
 function intstrux_highwire_article_load($article_id) {
-  $cache = cache_get('hw:article:' . $article_id, 'cache');
+  $cache = cache_get('hw:article:' . $article_id, 'cache_highwire');
   if (isset($cache->data['atom:entry'])) {
     return $cache->data;
   }
@@ -163,7 +163,7 @@ function intstrux_highwire_article_load($article_id) {
       $article = $hw ? drupal_json_decode($hw->getContent()) : NULL;
 
       if (isset($article['atom:entry'])) {
-        cache_set('hw:article:' . $article_id, $article, 'cache', $_SERVER['REQUEST_TIME'] + 300);
+        cache_set('hw:article:' . $article_id, $article, 'cache_highwire', $_SERVER['REQUEST_TIME'] + variable_get('intstrux_highwire_cache_lifetime', 300));
         return $article;
       }
     }
@@ -172,8 +172,8 @@ function intstrux_highwire_article_load($article_id) {
 }
 
 function intstrux_highwire_article_content_load($article_id, $view = 'abstract', $type = 'html') {
-  $cache = cache_get("hw:article:{$view}:{$type}:" . $article_id, 'cache');
-  if ($cache) {
+  $cache = cache_get("hw:article:{$view}:{$type}:" . $article_id, 'cache_highwire');
+  if ($cache && $cache->expire > $_SERVER['REQUEST_TIME']) {
     return $cache->data;
   } else {
     if($article = intstrux_highwire_article_load($article_id)) {
@@ -185,7 +185,7 @@ function intstrux_highwire_article_content_load($article_id, $view = 'abstract',
           $hw->parse(variable_get('intstrux_highwire_cache_lifetime', -1));
           // view content
           if($content = $hw->getContent()) {
-            cache_set("hw:article:{$view}:{$type}:" . $article_id, $content, 'cache', $_SERVER['REQUEST_TIME'] + 300);
+            cache_set("hw:article:{$view}:{$type}:" . $article_id, $content, 'cache_highwire', $_SERVER['REQUEST_TIME'] + variable_get('intstrux_highwire_cache_lifetime', 300));
             return $content;
           }
         }

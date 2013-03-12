@@ -6,6 +6,15 @@
   */
 
 /**
+ * Implements hook_schema().
+ */
+function intstrux_highwire_schema() {
+  $schema['cache_highwire'] = drupal_get_schema_unprocessed('system', 'cache');
+  
+  return $schema;
+}
+  
+/**
  * Implements hook_uninstall().
  */
 function intstrux_highwire_uninstall() {
@@ -13,4 +22,17 @@ function intstrux_highwire_uninstall() {
   variable_del('intstrux_highwire_api_key');
   variable_del('intstrux_highwire_cache_type');
   variable_del('intstrux_highwire_cache_lifetime');
+  
+  if (db_table_exists('cache_highwire')) {
+    db_drop_table('cache_highwire');
+  }
+}
+
+/**
+ * Create cache_highwire table
+ */
+function intstrux_highwire_update_7000() {
+  if (!db_table_exists('cache_highwire')) {
+    drupal_install_schema('intstrux_highwire');
+  }
 }
