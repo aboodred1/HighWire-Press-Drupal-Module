@@ -37,135 +37,108 @@ function intstrux_highwire_menu() {
 }
 
 /**
- * Implements hook_permission().
- */
-function intstrux_highwire_permission() {
-  return array(
-    'administer intstrux highwire settings' => array(
-      'title' => t('Administer HighWire'),
-    ),
-  );
-}
-
-/**
- * Return the path to the coreylib library.
- *
- * The library is available from https://github.com/collegeman/coreylib/.
- *
- * @return string
- *   The path to the coreylib.php file.
- */
-function intstrux_highwire_coreylib_path() {
-  $path = &drupal_static(__FUNCTION__);
-
-  if (!isset($path)) {
-    if (!($path = variable_get('intstrux_highwire_coreylib_path', FALSE))) {
-      $files = drupal_system_listing('/^coreylib\.php$/', 'libraries',
-                                     'filename', 0);
-      if (isset($files['coreylib.php'])) {
-        $path = dirname($files['coreylib.php']->uri);
-        variable_set('intstrux_highwire_coreylib_path', $path);
-      }
-    }
-  }
-
-  return $path;
-}
-
-/**
- * Initializes the HighWire API and returns an instance of the object.
- *
- * @param string $url
- *   An optional URL instead of the stored one.
- * @param string $path
- *   An optional path.
- * @param string $key
- *   An optional API key instead of the stored one.
- * @return coreylib
- *   Instance of the HighWire coreylib API or FALSE if fails to initialize.
- */
-function intstrux_highwire_initialize($url = NULL, $path = NULL, $key = NULL) {
-
-  if(empty($url)) {
-    $url = variable_get('intstrux_highwire_api_url', '');
-  }
-
-  if (empty($key)) {
-    $key = variable_get('intstrux_highwire_api_key', '');
-  }
-  
-  if (empty($url)) {
-    drupal_set_message(t('Cannot initialize HighWire API URL. Contact site administrators.'), 'error');
-    watchdog('intstrux_highwire', 'HighWire API URL not found, cannot initialize HighWire API.', array(), WATCHDOG_ERROR);
-    return FALSE;
-  }
-  
-  if (empty($key)) {
-    drupal_set_message(t('Cannot initialize HighWire API. Contact site administrators.'), 'error');
-    watchdog('intstrux_highwire', 'HighWire API key not found, cannot initialize HighWire API.', array(), WATCHDOG_ERROR);
-    return FALSE;
-  }
-  
-  if(file_exists(intstrux_highwire_coreylib_path() . '/coreylib.php')) {
-    include_once(intstrux_highwire_coreylib_path() . '/coreylib.php');
-    
-    $arr_url = parse_url($url);
-
-    if(!isset($arr_url['path'])) {
-      $path = (!empty($path))? $path : '';
-      $url = $url . '/' . $path;
-    }
-
-    $hw = new clApi($url);
-    $hw->param('key', $key);
-
-    return $hw;
-  }
-  
-  return false;
-}
-
-/**
  * Verifies the HighWire API key.
  */
-function intstrux_highwire_verify_key($url = NULL, $key = NULL) {
-  $hw = intstrux_highwire_initialize($url, NULL, $key);
+function intstrux_highwire_verify_key($url, $key) {
   
   /* API key validation logic */
   
   return true;
 }
 
+function intstrux_highwire_request($args = array(), $options = array()) {
+      
+  // Merge in defaults.
+  $args += array(
+    'url' => '',
+    'path' => '',
+    'key' => '',
+    'cache' => -1, // disabled
+    'params' => array(),
+  );  
+    
+  if(empty($args['url'])) {
+    $args['url'] = variable_get('intstrux_highwire_api_url', '');
+  }
+  
+  if(empty($args['url'])) {
+    drupal_set_message(t('Cannot initialize HighWire API URL. Contact site administrators.'), 'error');
+    watchdog('intstrux_highwire', 'HighWire API URL not found, cannot initialize HighWire API.', array(), WATCHDOG_ERROR);
+    return FALSE;
+  }
+  
+  if(empty($args['key'])) {
+    $args['key'] = variable_get('intstrux_highwire_api_key', '');
+  }
+  
+  if(empty($args['key'])) {
+    drupal_set_message(t('Cannot initialize HighWire API. Contact site administrators.'), 'error');
+    watchdog('intstrux_highwire', 'HighWire API key not found, cannot initialize HighWire API.', array(), WATCHDOG_ERROR);
+    return FALSE;
+  }
+  
+  if($args['cache'] > 0) {
+    $args['cache'] = variable_get('intstrux_highwire_cache_lifetime', -1);
+  }
+  
+  $parsed_url = parse_url($args['url']);
+  
+  // check if url has path
+  if(!isset($parsed_url['path'])) {
+    $path = (!empty($args['path']))? $args['path'] : '';
+    $args['url'] = $args['url'] . '/' . $path;
+  }
+  
+  // full url
+  $url = url($args['url'], $options + array('query' => array('key' => $args['key']) + $args['params'])); 
+  
+  // HTTP request.
+  $request = drupal_http_request($url);
+  
+  if($request->headers['content-type'] == 'application/json') {
+    $result = drupal_json_decode($request->data);  
+  } else {
+    $result = $request->data;
+  }
+      
+  return $result;
+}
+
 /**
  * Loads HighWire article from HighWire Press API.
  *
  * @param $article_id
- *
+ * 
+ * @param $by
+ *   Article identifier; accepts doi and pmid
+ * 
  * @return $article
  * Article object or FALSE if article not found.
  */
-function intstrux_highwire_article_load($article_id) {
-  $cache = cache_get('hw:article:' . $article_id, 'cache_highwire');
+function intstrux_highwire_article_load($article_id, $by = 'doi') {
+    
+  if(($by != 'doi') && ($by != 'pmid')) {
+    return FALSE;
+  }
+    
+  $cache = cache_get('hw:article:' . $by . ':' . $article_id, 'cache_highwire');
   if (isset($cache->data['atom:entry'])) {
     return $cache->data;
   }
   else {
-    $hw = intstrux_highwire_initialize(NULL, 'content');
+    $args = array(
+      'path' => 'content',
+      'params' => array(
+        $by => $article_id, // doi or pmid
+        'type' => 'json', // output should be returned in JSON format.
+      ),
+    );
+    
+    $article = intstrux_highwire_request($args);
 
-    if($hw) {
-      // PubMed ID
-      $hw->param('pmid', $article_id);
-      // output should be returned in JSON format.
-      $hw->param('type', 'json');
-      // set cache expiration
-      $hw->parse(variable_get('intstrux_highwire_cache_lifetime', -1));
-
-      $article = $hw ? drupal_json_decode($hw->getContent()) : NULL;
-
-      if (isset($article['atom:entry'])) {
-        cache_set('hw:article:' . $article_id, $article, 'cache_highwire', $_SERVER['REQUEST_TIME'] + variable_get('intstrux_highwire_cache_lifetime', 300));
-        return $article;
-      }
+    if($article && isset($article['atom:entry'])) {
+      cache_set('hw:article:' . $by . ':' . $article_id, $article, 'cache_highwire', $_SERVER['REQUEST_TIME'] + variable_get('intstrux_highwire_cache_lifetime', 300));
+      return $article;
     }
   }
   return FALSE;
@@ -176,19 +149,13 @@ function intstrux_highwire_article_content_load($article_id, $view = 'abstract',
   if ($cache && $cache->expire > $_SERVER['REQUEST_TIME']) {
     return $cache->data;
   } else {
-    if($article = intstrux_highwire_article_load($article_id)) {
+    $by = (is_numeric($article_id))? 'pmid' : 'doi';
+    if($article = intstrux_highwire_article_load($article_id, $by)) {
       if($article_url = intstrux_highwire_parse_link($article['atom:entry'], $view, $type)){
-        $hw = intstrux_highwire_initialize($article_url);
-
-        if($hw) {
-          // set cache expiration
-          $hw->parse(variable_get('intstrux_highwire_cache_lifetime', -1));
-          // view content
-          if($content = $hw->getContent()) {
-            cache_set("hw:article:{$view}:{$type}:" . $article_id, $content, 'cache_highwire', $_SERVER['REQUEST_TIME'] + variable_get('intstrux_highwire_cache_lifetime', 300));
-            return $content;
-          }
-        }
+        if($content = intstrux_highwire_request(array('url' => $article_url))) {
+          cache_set("hw:article:{$view}:{$type}:" . $article_id, $content, 'cache_highwire', $_SERVER['REQUEST_TIME'] + variable_get('intstrux_highwire_cache_lifetime', 300));
+          return $content;  
+        }       
       } else {
         return t('No !view content with this article', array('!view' => $view));
       }
@@ -198,52 +165,19 @@ function intstrux_highwire_article_content_load($article_id, $view = 'abstract',
 }
 
 /**
- * Retrieve all used fields.
- *
- * @return
- *   Array value of field_type options.
- */
-function intstrux_highwire_fields_list() {
-  $instances = field_info_instances();
-  $field_types = field_info_field_types();
-  $bundles = field_info_bundles();
-
-  $rows = array();
-  foreach ($instances as $entity_type => $type_bundles) {
-    foreach ($type_bundles as $bundle => $bundle_instances) {
-      foreach ($bundle_instances as $field_name => $instance) {
-        $field = field_info_field($field_name);
-        // Initialize the row if we encounter the field for the first time.
-        if (!isset($rows[$field_name])) {
-          $rows[$field_name][0] = $field_name;
-          $rows[$field_name][1] = $field_types[$field['type']]['label'];
-        }
-
-        $rows[$field_name][2][] = $bundles[$entity_type][$bundle]['label'];
-      }
-    }
-  }
-  foreach ($rows as $field_name => $cell) {
-    $rows[$field_name] = t('@type_label: @field_name (@used_in)', array(
-      '@type_label' => $rows[$field_name][1],
-      '@field_name' => $field_name,
-      '@used_in' => implode(', ', $cell[2]),
-    ));
-  }
-  
-  return $rows;
-}
-
-/**
  * Parse a field value in form of "title [id:123]" and return 123
  *
  * @param $id
- *   Video ID in form of "title [id:123]".
+ *   Article PMID or DOI in form of "title [id:123]".
  * @return
- *   Int value of the ID or NULL if not found.
+ *   Int value of the PMID or DOI or NULL if not found.
  */
-function intstrux_highwire_parse_id($id) {
-  preg_match('/\[id:([^\[]*)\]$/', $id, $matches);
+function intstrux_highwire_parse_identifier($id) {
+  preg_match('/\[doi:([^\[]*)\]$/', $id, $matches);
+  if (count($matches) == 2) {
+    return $matches[1];
+  }
+  preg_match('/\[pmid:([^\[]*)\]$/', $id, $matches);
   if (count($matches) == 2) {
     return $matches[1];
   }
@@ -263,6 +197,24 @@ function intstrux_highwire_parse_pmid($entry) {
     if($articleId['@pub-id-type'] == 'pmid') {
       $pmid = $articleId['$'];
       return $pmid;
+    }
+  }
+  return NULL;
+}
+
+/**
+ * Parse DOI:
+ *
+ * @param $entry
+ *   Article array entry.
+ * @return
+ *   Int value of the doi or NULL if not found.
+ */
+function intstrux_highwire_parse_doi($entry) {
+  foreach($entry['nlm:article-id'] as $articleId) {
+    if($articleId['@pub-id-type'] == 'doi') {
+      $doi = $articleId['$'];
+      return $doi;
     }
   }
   return NULL;
@@ -309,4 +261,41 @@ function intstrux_highwire_remove_tag($element, $attr, $value, $content) {
   $attr = preg_quote($attr);
   $value = preg_quote($value);
   return preg_replace('!<'.$element.'\s+'.$attr.'="'.$value.'">.*?</'.$element.'>!is', '', $content);
+}
+
+/**
+ * Retrieve all used fields.
+ *
+ * @return
+ *   Array value of field_type options.
+ */
+function intstrux_highwire_fields_list() {
+  $instances = field_info_instances();
+  $field_types = field_info_field_types();
+  $bundles = field_info_bundles();
+
+  $rows = array();
+  foreach ($instances as $entity_type => $type_bundles) {
+    foreach ($type_bundles as $bundle => $bundle_instances) {
+      foreach ($bundle_instances as $field_name => $instance) {
+        $field = field_info_field($field_name);
+        // Initialize the row if we encounter the field for the first time.
+        if (!isset($rows[$field_name])) {
+          $rows[$field_name][0] = $field_name;
+          $rows[$field_name][1] = $field_types[$field['type']]['label'];
+        }
+
+        $rows[$field_name][2][] = $bundles[$entity_type][$bundle]['label'];
+      }
+    }
+  }
+  foreach ($rows as $field_name => $cell) {
+    $rows[$field_name] = t('@type_label: @field_name (@used_in)', array(
+      '@type_label' => $rows[$field_name][1],
+      '@field_name' => $field_name,
+      '@used_in' => implode(', ', $cell[2]),
+    ));
+  }
+  
+  return $rows;
 }

@@ -88,7 +88,7 @@ function intstrux_highwire_admin_settings_validate($form, &$form_state) {
   $url = $form_state['values']['intstrux_highwire_api_url'];
   $key = $form_state['values']['intstrux_highwire_api_key'];
   
-  if(!intstrux_highwire_verify_key($url, NULL, $key)) {
+  if(!intstrux_highwire_verify_key($url, $key)) {
     form_set_error('intstrux_highwire_api_key', t('Invalid API key'));
   }
 }

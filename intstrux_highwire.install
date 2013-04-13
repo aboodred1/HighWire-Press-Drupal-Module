@@ -9,6 +9,7 @@
  * Implements hook_schema().
  */
 function intstrux_highwire_schema() {
+  // create cache table for highwire
   $schema['cache_highwire'] = drupal_get_schema_unprocessed('system', 'cache');
   
   return $schema;

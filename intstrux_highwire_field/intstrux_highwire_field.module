@@ -38,25 +38,21 @@ function intstrux_highwire_field_menu() {
 function intstrux_highwire_field_autocomplete($field_name, $string = '') {
   $matches = array();
   
-  $hw = intstrux_highwire_initialize(NULL, 'opensearch/results');
+  $args = array(
+    'path' => 'opensearch/results',
+    'params' => array(
+      'v' => '1', // required value is 1
+      'cql' =>  'dc.title any (' . $string . ')',  // the searchTerms CQL search query, search by title
+      'type' => 'json', // output should be returned in JSON format.
+    ),  
+  );
   
-  if($hw) {
-    // required value is 1
-    $hw->param('v', '1');
-    // the searchTerms CQL search query, search by title
-    $hw->param('cql', 'dc.title any (' . $string . ')');
-    // output should be returned in JSON format.
-    $hw->param('type', 'json');
-    // set cache expiration
-    $hw->parse(variable_get('intstrux_highwire_cache_lifetime', -1));
-  
-    $result = drupal_json_decode($hw->getContent());
-  
+  if($result = intstrux_highwire_request($args)) {
     foreach($result['atom:feed']['atom:entry'] as $entry) {
-      $id = intstrux_highwire_parse_pmid($entry);
+      $doi = intstrux_highwire_parse_doi($entry);
       $title = check_plain($entry['atom:title']['$']);
 
-      $matches[$title . ' [id:' . $id . ']'] = check_plain($title . ' [id: ' . $id . ']');
+      $matches[$title . ' [doi:' . $doi . ']'] = check_plain($title . ' [doi: ' . $doi . ']');
     }
   }
     
@@ -94,9 +90,9 @@ function intstrux_highwire_field_field_widget_form(&$form, &$form_state, $field,
   $eid = isset($form[$entity_info['entity keys']['id']]['#value']) ? $form[$entity_info['entity keys']['id']]['#value'] : NULL;
   $bundle = isset($form[$entity_info['entity keys']['bundle']]['#value']) ? $form[$entity_info['entity keys']['bundle']]['#value'] : NULL;
   
-  $element['article_id'] = array(
+  $element['doi'] = array(
     '#type' => 'textfield',
-    '#default_value' => isset($items[$delta]['article_id']) ? $items[$delta]['article_id'] : NULL,
+    '#default_value' => isset($items[$delta]['doi']) ? $items[$delta]['doi'] : NULL,
     '#title' => $element['#title'],
     '#value_callback' => 'intstrux_highwire_field_browser_value',
     '#autocomplete_path' => 'highwire_field/autocomplete/' . $element['#entity_type'] . '/' . $element['#field_name'] . '/' . ($eid ? $eid : ($bundle ? $bundle : 0)),
@@ -196,12 +192,12 @@ function intstrux_highwire_field_button_value_callback() {
  * Implements hook_field_is_empty().
  */
 function intstrux_highwire_field_field_is_empty($item, $field) {
-  return empty($item['article_id']);
+  return empty($item['doi']);
 }
 
 /**
  * Callback for Brightcove field browser widget.
- * Will return a field value in "video-name [id:videoId]" format.
+ * Will return a field value in "video-name [doi:videoId]" format.
  *
  */
 function intstrux_highwire_field_browser_value($element, $value, $form_state) {
@@ -213,9 +209,9 @@ function intstrux_highwire_field_browser_value($element, $value, $form_state) {
     $article = intstrux_highwire_article_load($value);
 
     if(isset($article['atom:entry']) && !empty($article['atom:entry'])) {
-      $id = intstrux_highwire_parse_pmid($article['atom:entry']);
+      $id = intstrux_highwire_parse_doi($article['atom:entry']);
       $title = $article['atom:entry']['atom:title']['$'];
-      $value = check_plain($title) . " [id:{$id}]";
+      $value = check_plain($title) . " [doi:{$id}]";
     }
   }
   
@@ -231,17 +227,15 @@ function intstrux_highwire_field_browser_validate($element, &$form_state) {
   
   if (!empty($value)) {
     // Assign ID to the value.
-    // 231289 [id:72431493001]
-    $id = intstrux_highwire_parse_id($value);
+    // 231289 [doi:10.1634/theoncologist.8-1-18]
+    $id = intstrux_highwire_parse_identifier($value);
+    
+    $by = (is_numeric($id))? 'pmid' : 'doi';
 
-    if (is_numeric($id)) {
-      // Matched ID, check if the article exists.
-      $article = intstrux_highwire_article_load($id);
+    // Matched ID, check if the article exists.
+    $article = intstrux_highwire_article_load($id, $by);
 
-      if (!isset($article['atom:entry']) && intstrux_highwire_parse_pmid($article['atom:entry']) != $id) {
-        form_error($element, t('%name: Found no valid article with that title. Please note that it might take several minutes after the article has been add to HighWire press to appear in the API.', array('%name' => t($element['#title']))));
-      }
-    } else {
+    if (!isset($article['atom:entry']) && intstrux_highwire_parse_doi($article['atom:entry']) != $id) {
       form_error($element, t('%name: Found no valid article with that title. Please note that it might take several minutes after the article has been add to HighWire press to appear in the API.', array('%name' => t($element['#title']))));
     }
   } 
@@ -269,7 +263,7 @@ function intstrux_highwire_field_ajax_browse_dialog_callback($form, $form_state)
 
 function intstrux_highwire_field_ajax_browse_dialog_close_callback($form, $form_state) {
   $selector = '#highwire-browse-dialog';
-  $data = check_plain($form_state['values']['title']) . ' [id:' . check_plain($form_state['values']['id']) . ']';
+  $data = check_plain($form_state['values']['title']) . ' [doi:' . check_plain($form_state['values']['id']) . ']';
   $dialog_type = 'browse';
 
   $commands = array();
@@ -375,7 +369,7 @@ function intstrux_highwire_field_field_formatter_view($entity_type, $entity, $fi
   $element = array();
   
   foreach ($items as $delta => $item) {
-    $article_id = $item['article_id'];
+    $article_id = $item['doi'];
   }
   
   switch ($display['type']) {
@@ -423,8 +417,11 @@ function intstrux_highwire_field_field_formatter_view($entity_type, $entity, $fi
   }
   
   // create html file if cache expire
+  /*
+  // uncomment if needed
   if(isset($article_id)) {
-    $cache = cache_get('hw:article:' . $article_id, 'cache_highwire');
+    $by = (is_numeric($article_id))? 'pmid' : 'doi';
+    $cache = cache_get('hw:article:' . $by . ':' . $article_id, 'cache_highwire');
  
     if($cache && $cache->expire < $_SERVER['REQUEST_TIME']) {
       // create file with full view
@@ -449,11 +446,10 @@ function intstrux_highwire_field_field_formatter_view($entity_type, $entity, $fi
         }
       }
     }
-
   }
-  
-  
-  
+   * 
+   */
+
   return $element;
 }
 
@@ -482,10 +478,31 @@ function theme_intstrux_highwire_field_browser($element) {
 }
 
 /**
+ * Implements hook_field_presave().
+ */
+function intstrux_highwire_field_field_presave($entity_type, $entity, $field, $instance, $langcode, &$items) {
+  // get article pmid if exist
+  foreach ($items as &$item) {
+    if (!isset($item['pmid'])) {
+      if($article_id = $item['doi']) {
+        $article = intstrux_highwire_article_load($article_id);
+        if($article_pmid = intstrux_highwire_parse_pmid($article['atom:entry'])) {
+          $item['pmid'] = $article_pmid;
+        }
+      }
+    }
+  }
+}
+
+/**
  * Implements hook_node_presave().
  */
 function intstrux_highwire_field_node_presave($node) {
   
+
+}
+
+function intstrux_highwire_field_node_insert_presave($node) {
   $lang = $node->language;
 
   $article_id = 0;
@@ -497,7 +514,7 @@ function intstrux_highwire_field_node_presave($node) {
 
     if(isset($field['type']) && $field['type'] == 'highwire_article') {
       $article_instance = field_info_instance('node', $delta, $node->type);
-      $article_id = (isset($node->{$delta}[$lang][0]))? $node->{$delta}[$lang][0]['article_id'] : 0;
+      $article_id = (isset($node->{$delta}[$lang][0]))? $node->{$delta}[$lang][0]['doi'] : 0;
       break;
     }
   }
@@ -631,50 +648,43 @@ function intstrux_highwire_field_browse() {
   
   if (isset($_SESSION['intstrux_highwire_field_filter'])) {
   
-    $hw = intstrux_highwire_initialize(NULL, 'opensearch/results');
-  
-    if($hw) {
-
-      // required value is 1
-      $hw->param('v', '1');
-      // output should be returned in JSON format.
-      $hw->param('type', 'json');
-
-      $string = $_SESSION['intstrux_highwire_field_filter']['keywords'];
-
-      switch ($_SESSION['intstrux_highwire_field_filter']['search']) {
-        case 'titles':
-          // the searchTerms CQL search query, search by title
-          $hw->param('cql', 'dc.title any (' . $string . ')');
-          break;
-        case 'abstracts':
-          // the searchTerms CQL search query, search by abstract
-          $hw->param('cql', 'dc.abstract any (' . $string . ')');
-          break;
-        case 'descriptions':
-          // the searchTerms CQL search query, search by description
-          $hw->param('cql', 'dc.description any (' . $string . ')');
-          break;
-        case 'authors':
-          // the searchTerms CQL search query, search by author
-          $hw->param('cql', 'dc.creator = (' . $string . ')');
-          break;
-        case 'titles_desc':
-        default: 
-          // the searchTerms CQL search query
-          $hw->param('cql', $string);
-          break;
-      }
-      
-      // display number of items
-      $hw->param('count', $page_increment);
-      // Start Index for pager
-      $hw->param('start', $page * $page_increment);
-      // set cache expiration
-      $hw->parse(variable_get('intstrux_highwire_cache_lifetime', -1));
-
-      $result = drupal_json_decode($hw->getContent());
+    $args = array(
+      'path' => 'opensearch/results',
+      'params' => array(
+        'v' => '1',  // required value is 1
+        'type' => 'json', // output should be returned in JSON format.
+        'count' => $page_increment, // display number of items
+        'start' => $page * $page_increment, // Start Index for pager
+      ),
+    );  
+    
+    $string = $_SESSION['intstrux_highwire_field_filter']['keywords'];
+    
+    switch ($_SESSION['intstrux_highwire_field_filter']['search']) {
+      case 'titles':
+        // the searchTerms CQL search query, search by title
+        $args['params']['cql'] = 'dc.title any (' . $string . ')';
+        break;
+      case 'abstracts':
+        // the searchTerms CQL search query, search by abstract
+        $args['params']['cql'] = 'dc.abstract any (' . $string . ')';
+        break;
+      case 'descriptions':
+        // the searchTerms CQL search query, search by description
+        $args['params']['cql'] = 'dc.description any (' . $string . ')';
+        break;
+      case 'authors':
+        // the searchTerms CQL search query, search by author
+        $args['params']['cql'] = 'dc.creator = (' . $string . ')';
+        break;
+      case 'titles_desc':
+      default: 
+        // the searchTerms CQL search query
+        $args['params']['cql'] = $string;
+        break;
     }
+    
+    $result = intstrux_highwire_request($args);
   }
 
   $items = array();
@@ -699,7 +709,7 @@ function intstrux_highwire_field_browse() {
 
       foreach($result['atom:feed']['atom:entry'] as $entry){
         $item = array();
-        $item['article_id'] = intstrux_highwire_parse_pmid($entry);
+        $item['article_id'] = intstrux_highwire_parse_doi($entry);
         // some articles title have two lines
         $article_title = '';
         if(isset($entry['atom:title']['$'])) {
@@ -847,8 +857,8 @@ function intstrux_highwire_field_browser_form($form, &$form_state, $item) {
  * Just take the value and pass it to modalframe.
  */
 function intstrux_highwire_field_browser_form_submit($form, &$form_state) {
-  // The value is "title [id:ID]" - recognised by validating element.
-  $return['selected'] = check_plain($form_state['values']['title']) . ' [id:' . check_plain($form_state['values']['id']) . ']';
+  // The value is "title [doi:ID]" - recognised by validating element.
+  $return['selected'] = check_plain($form_state['values']['title']) . ' [doi:' . check_plain($form_state['values']['id']) . ']';
 }
 
 /**
