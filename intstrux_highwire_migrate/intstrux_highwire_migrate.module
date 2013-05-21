@@ -19,211 +19,117 @@ function intstrux_highwire_migrate_menu() {
     'access arguments' => array('administer intstrux highwire settings'),
     'type' => MENU_LOCAL_TASK,
     'weight' => 10,
+    'file' => 'intstrux_highwire_migrate.default.inc',
+  );
+  
+  $items['admin/config/content/highwire/migrate/default'] = array(
+    'title' => 'Migrate',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => 1,
+  );
+  
+  $items['admin/config/content/highwire/migrate/verify'] = array(
+    'title' => 'Verify',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('intstrux_highwire_migrate_verify_form'),
+    'access arguments' => array('administer intstrux highwire settings'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 2,
+    'file' => 'intstrux_highwire_migrate.verify.inc',  
+  );
+  
+  $items['admin/config/content/highwire/migrate/import'] = array(
+    'title' => 'Import',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('intstrux_highwire_migrate_import_form'),
+    'access arguments' => array('administer intstrux highwire settings'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 3,
+    'file' => 'intstrux_highwire_migrate.import.inc',
+  );
+  
+  $items['admin/config/content/highwire/migrate/date'] = array(
+    'title' => 'Migrate Dates',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('intstrux_highwire_migrate_date_form'),
+    'access arguments' => array('administer intstrux highwire settings'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 4,
+    'file' => 'intstrux_highwire_migrate.date.inc',
   );
   
   return $items;
 }
 
-function intstrux_highwire_migrate_form($form, &$form_state) {
-  $form = array();
-  
-  $form['description'] = array(
-    '#type' => 'markup',
-    '#markup' => '<p>' . t('Lorem Ipsum is simply dummy text of the printing and typesetting industry.') . '</p>',
-  );
-  
-  $queue = DrupalQueue::get('highwire_migrate_queue');
-  
-  $form['current_queue_status'] = array(
-    '#type' => 'markup',
-    '#markup' => '<p>' . t('There are currently %queue items in HighWire migrate queue', array('%queue' => $queue->numberOfItems())) . '</p>',
-  );
-  
-  $form['actions'] = array(
-    '#type' => 'actions'
-  );
-  
-  $form['actions']['submit'] = array(
-    '#type' => 'submit',
-    '#value' => t('Migrate'),
-  );
-  
-  return $form;
-}
-
-function intstrux_highwire_migrate_form_submit() {
-    
-  $batch = array(
-    'title' => t('Processing HighWire migration'),
-    'operations' => array(
-      array('intstrux_highwire_migrate_batch_start', array('highwire_migrate_queue')),
-    ),
-    'finished' => 'intstrux_highwire_migrate_batch_finish',
-    'init_message' => t('HighWire migration is starting.'),
-    'error_message' => t('HighWire migration has encountered an error.'),
-    'progress_message' => t('Current: @current | Remaining: @remaining | Total: @total | Percentage: @percentage | Estimate: @estimate | Elapsed: @elapsed')
-  );
-
-  batch_set($batch);
-}
-
-function intstrux_highwire_migrate_batch_start($queue_name, &$context) {
-  
-  // Grab the defined cron queues.
-  $queues = module_invoke_all('cron_queue_info');
-  drupal_alter('cron_queue_info', $queues);
-  if (!($info = $queues[$queue_name])) return;
-  $queue = DrupalQueue::get($queue_name);
-  
-  // Work off queues.
-  if (!isset($context['sandbox']['completed'])) {
-    $context['sandbox']['completed'] = 0;
-    $context['sandbox']['total'] = $queue->numberOfItems();
-  }
-  
-  $function = $info['worker callback'];
-  $end = time() + (isset($info['time']) ? $info['time'] : 15);
-  while (time() < $end && ($item = $queue->claimItem())) {
-    $function($item->data);
-    $queue->deleteItem($item);
-    $context['results'][] = $item;
-    $context['sandbox']['completed']++;
-  }
-  
-  // Update Batch API status.
-  $context['finished'] = empty($context['sandbox']['total']) ? 1 : $context['sandbox']['completed'] / $context['sandbox']['total'];
-  $context['message'] = t('Now processing queue !queue...', array('!queue' => $queue_name));  
-}
-
-function intstrux_highwire_migrate_batch_finish($success, $results, $operations) {
-  if ($success) {
-    drupal_set_message(t('@count results processed. Check !log for more details.', array('@count' => count($results), '!log' => l('Recent log messages', 'admin/reports/dblog'))));
-  } else {
-    $error_operation = reset($operations);
-    drupal_set_message(t('An error occurred while processing @operation with arguments : @args', array('@operation' => $error_operation[0], '@args' => print_r($error_operation[0], TRUE))));
-  }
-}
-
-/**
- * Implements hook_cron().
- */
-function intstrux_highwire_migrate_cron() {
-  
-  $queue = DrupalQueue::get('highwire_migrate_queue');
-  
-  $query = db_select('node', 'n')
-           ->fields('n', array('nid', 'vid', 'title'))
-           ->condition('n.status', '1')
-           ->condition('n.type', 'page_html', 'LIKE')
-           ->extend('PagerDefault')
-           ->limit(50);
-  // article title field
-  $query->leftJoin('field_data_field_article_title', 'at', 'n.nid = at.entity_id');
-  $query->addField('at', 'field_article_title_value', 'article_title');
-  // status field
-  $query->leftJoin('field_data_field_status', 'fs', 'n.nid = fs.entity_id AND fs.entity_type = :type AND fs.bundle = :bundle', array(
-    ':type' => 'node',
-    ':bundle' => 'page_html',
-  ));
-  $query->condition(db_or()->condition('fs.field_status_value', '0')->isNull('fs.field_status_value'));
-  $query->addField('fs', 'field_status_value', 'status');
-  
-  $result =  $query->execute()->fetchAllAssoc('nid');
-
-  if($result) {
-    foreach($result as $nid => $node) {
-      $item = new stdClass();
-      $item->nid = $node->nid;
-      $item->vid = $node->vid;
-      $item->title = $node->title;
-      $item->article_title = $node->article_title;
-      $item->created = time();
-      $item->sequence = $nid;
-      $queue->createItem($item);
-    }
-  }
-}
-
-/**
- * Implements hook_cron_queue_info().
- */
-function intstrux_highwire_migrate_cron_queue_info() {
-  $queues['highwire_migrate_queue'] = array(
-    'worker callback' => 'intstrux_highwire_migrate_queue_process',
-    'time' => 15,
-  );
-  return $queues;
-}
-
-function intstrux_highwire_migrate_queue_process($item) {
-
-  if($article_id = intstrux_highwire_migrate_search($item->article_title)) {
-
-    // set article id
-    $entity = new stdClass();
-    $entity->nid = $item->nid;
-    $entity->vid = $item->vid;
-    $entity->type  = 'page_html';
-    $entity->original = NULL;
-    $entity->field_article_pmid['und'][0]['article_id'] = $article_id;
-    field_attach_presave('node', $entity);
-    field_attach_update('node', $entity);
-
-    // set field_status to "Found"
-    $entity = new stdClass();
-    $entity->nid = $item->nid;
-    $entity->vid = $item->vid;
-    $entity->type  = 'page_html';
-    $entity->original = NULL;
-    $entity->field_status['und'][0]['value'] = 1;
-    field_attach_presave('node', $entity);
-    field_attach_update('node', $entity);
-
-    // drupal_set_message(t('Article with pmid (@pmid) and nid (@nid) was found and merged at @time', array('@pmid' => $article_id, '@nid' => $item->sequence, '@time' => date_iso8601($item->created))));
-
-    watchdog('cron_intstrux_highwire', 'Article with pmid (@pmid) and nid (@nid) was found and merged at @time', array('@pmid' => $article_id, '@nid' => $item->sequence, '@time' => date_iso8601($item->created)));
-
-  } else {
-    // set field_status to "Not Found"
-    $entity = new stdClass();
-    $entity->nid = $item->nid;
-    $entity->vid = $item->vid;
-    $entity->type  = 'page_html';
-    $entity->original = NULL;
-    $entity->field_status['und'][0]['value'] = 0;
-    field_attach_presave('node', $entity);
-    field_attach_update('node', $entity);
-
-    watchdog('cron_intstrux_highwire', 'Article with nid (@nid) was not found @time', array('@nid' => $item->sequence, '@time' => date_iso8601($item->created)));
-  }
-  
-  // drupal_set_message(t('Queue highwire migrate processed item with sequence @sequence created at @time', array('@sequence' => $item->sequence, '@time' => date_iso8601($item->created))));
-}
-
 function intstrux_highwire_migrate_search($title) {
   if($title) {
-    $hw = intstrux_highwire_initialize(NULL, 'opensearch/results');
-
-    if($hw) {
-      // required value is 1
-      $hw->param('v', '1');
-      // the searchTerms CQL search query, search by title
-      $hw->param('cql', 'dc.title = (' . $title . ')');
-      // output should be returned in JSON format.
-      $hw->param('type', 'json');
-      // set cache expiration
-      $hw->parse(variable_get('intstrux_highwire_cache_lifetime', -1));
-  
-      $result = drupal_json_decode($hw->getContent());
-
+    
+    $args = array(
+      'path' => 'opensearch/results',
+      'params' => array(
+        'v' => '1', // required value is 1
+        'cql' => 'dc.title = (' . $title . ')', // the searchTerms CQL search query, search by title
+        'type' => 'json' // output should be returned in JSON format.
+      ),
+    );  
+      
+      
+    if($result = intstrux_highwire_request($args)) {
       if(isset($result['atom:feed']['atom:entry'])) {
         $entries = $result['atom:feed']['atom:entry'];
-        $entry = $entries[0];
-        $id = intstrux_highwire_parse_pmid($entry);
-        return $id;
-      }
+        if($entry = $entries[0]) {
+          $article_id = intstrux_highwire_parse_doi($entry);
+          return $article_id;
+        }
+      }        
     }
   } 
   
   return FALSE;
+}
+
+function intstrux_highwire_migrate_search_by_volume($volume, $start = 0, $count = 10) {
+  
+  if($volume && is_numeric($volume)) {
+    $args = array(
+      'path' => 'opensearch/results',
+      'params' => array(
+        'v' => '1', // required value is 1
+        'cql' => 'bib.volume = (' . $volume . ')', // the searchTerms CQL search query, search by title
+        'type' => 'json', // output should be returned in JSON format.
+        'count' => $count, // display count result per page
+        'start' => $start, // starting at a specified index.
+      ),
+    ); 
+    
+    if($result = intstrux_highwire_request($args)) {
+      if(isset($result['atom:feed'])) {
+        return $result['atom:feed'];  
+      }  
+    }
+  }  
+    
+  return FALSE;  
+}
+
+function intstrux_highwire_migrate_taxonomy($term_name, $vocabulary_machine_name) {
+  $term = taxonomy_get_term_by_name($term_name, $vocabulary_machine_name);
+  $voc = taxonomy_vocabulary_machine_name_load($vocabulary_machine_name);
+  $tid = 0;
+  
+  if(empty($term) && $voc) {
+    $_term = new stdClass();  
+    $_term->name = $term_name;
+    $_term->vid = $voc->vid;
+    $_term->description = '';
+    $_term->format = 'plain_text';
+    if($saved = taxonomy_term_save($_term)) {
+      $tid = $_term->tid;
+    }
+  } elseif($term) {
+    $term = reset($term);  
+    $tid = $term->tid;  
+  }
+  
+  return $tid;
 }

@@ -37,135 +37,108 @@ function intstrux_highwire_menu() {
 }
 
 /**
- * Implements hook_permission().
- */
-function intstrux_highwire_permission() {
-  return array(
-    'administer intstrux highwire settings' => array(
-      'title' => t('Administer HighWire'),
-    ),
-  );
-}
-
-/**
- * Return the path to the coreylib library.
- *
- * The library is available from https://github.com/collegeman/coreylib/.
- *
- * @return string
- *   The path to the coreylib.php file.
- */
-function intstrux_highwire_coreylib_path() {
-  $path = &drupal_static(__FUNCTION__);
-
-  if (!isset($path)) {
-    if (!($path = variable_get('intstrux_highwire_coreylib_path', FALSE))) {
-      $files = drupal_system_listing('/^coreylib\.php$/', 'libraries',
-                                     'filename', 0);
-      if (isset($files['coreylib.php'])) {
-        $path = dirname($files['coreylib.php']->uri);
-        variable_set('intstrux_highwire_coreylib_path', $path);
-      }
-    }
-  }
-
-  return $path;
-}
-
-/**
- * Initializes the HighWire API and returns an instance of the object.
- *
- * @param string $url
- *   An optional URL instead of the stored one.
- * @param string $path
- *   An optional path.
- * @param string $key
- *   An optional API key instead of the stored one.
- * @return coreylib
- *   Instance of the HighWire coreylib API or FALSE if fails to initialize.
- */
-function intstrux_highwire_initialize($url = NULL, $path = NULL, $key = NULL) {
-
-  if(empty($url)) {
-    $url = variable_get('intstrux_highwire_api_url', '');
-  }
-
-  if (empty($key)) {
-    $key = variable_get('intstrux_highwire_api_key', '');
-  }
-  
-  if (empty($url)) {
-    drupal_set_message(t('Cannot initialize HighWire API URL. Contact site administrators.'), 'error');
-    watchdog('intstrux_highwire', 'HighWire API URL not found, cannot initialize HighWire API.', array(), WATCHDOG_ERROR);
-    return FALSE;
-  }
-  
-  if (empty($key)) {
-    drupal_set_message(t('Cannot initialize HighWire API. Contact site administrators.'), 'error');
-    watchdog('intstrux_highwire', 'HighWire API key not found, cannot initialize HighWire API.', array(), WATCHDOG_ERROR);
-    return FALSE;
-  }
-  
-  if(file_exists(intstrux_highwire_coreylib_path() . '/coreylib.php')) {
-    include_once(intstrux_highwire_coreylib_path() . '/coreylib.php');
-    
-    $arr_url = parse_url($url);
-
-    if(!isset($arr_url['path'])) {
-      $path = (!empty($path))? $path : '';
-      $url = $url . '/' . $path;
-    }
-
-    $hw = new clApi($url);
-    $hw->param('key', $key);
-
-    return $hw;
-  }
-  
-  return false;
-}
-
-/**
  * Verifies the HighWire API key.
  */
-function intstrux_highwire_verify_key($url = NULL, $key = NULL) {
-  $hw = intstrux_highwire_initialize($url, NULL, $key);
+function intstrux_highwire_verify_key($url, $key) {
   
   /* API key validation logic */
   
   return true;
 }
 
+function intstrux_highwire_request($args = array(), $options = array()) {
+      
+  // Merge in defaults.
+  $args += array(
+    'url' => '',
+    'path' => '',
+    'key' => '',
+    'cache' => -1, // disabled
+    'params' => array(),
+  );  
+    
+  if(empty($args['url'])) {
+    $args['url'] = variable_get('intstrux_highwire_api_url', '');
+  }
+  
+  if(empty($args['url'])) {
+    drupal_set_message(t('Cannot initialize HighWire API URL. Contact site administrators.'), 'error');
+    watchdog('intstrux_highwire', 'HighWire API URL not found, cannot initialize HighWire API.', array(), WATCHDOG_ERROR);
+    return FALSE;
+  }
+  
+  if(empty($args['key'])) {
+    $args['key'] = variable_get('intstrux_highwire_api_key', '');
+  }
+  
+  if(empty($args['key'])) {
+    drupal_set_message(t('Cannot initialize HighWire API. Contact site administrators.'), 'error');
+    watchdog('intstrux_highwire', 'HighWire API key not found, cannot initialize HighWire API.', array(), WATCHDOG_ERROR);
+    return FALSE;
+  }
+  
+  if($args['cache'] > 0) {
+    $args['cache'] = variable_get('intstrux_highwire_cache_lifetime', -1);
+  }
+  
+  $parsed_url = parse_url($args['url']);
+  
+  // check if url has path
+  if(!isset($parsed_url['path'])) {
+    $path = (!empty($args['path']))? $args['path'] : '';
+    $args['url'] = $args['url'] . '/' . $path;
+  }
+  
+  // full url
+  $url = url($args['url'], $options + array('query' => array('key' => $args['key']) + $args['params'])); 
+  
+  // HTTP request.
+  $request = drupal_http_request($url);
+  
+  if($request->headers['content-type'] == 'application/json') {
+    $result = drupal_json_decode($request->data);  
+  } else {
+    $result = $request->data;
+  }
+      
+  return $result;
+}
+
 /**
  * Loads HighWire article from HighWire Press API.
  *
  * @param $article_id
- *
+ * 
+ * @param $by
+ *   Article identifier; accepts doi and pmid
+ * 
  * @return $article
  * Article object or FALSE if article not found.
  */
-function intstrux_highwire_article_load($article_id) {
-  $cache = cache_get('hw:article:' . $article_id, 'cache_highwire');
+function intstrux_highwire_article_load($article_id, $by = 'doi') {
+    
+  if(($by != 'doi') && ($by != 'pmid')) {
+    return FALSE;
+  }
+    
+  $cache = cache_get('hw:article:' . $by . ':' . $article_id, 'cache_highwire');
   if (isset($cache->data['atom:entry'])) {
     return $cache->data;
   }
   else {
-    $hw = intstrux_highwire_initialize(NULL, 'content');
+    $args = array(
+      'path' => 'content',
+      'params' => array(
+        $by => $article_id, // doi or pmid
+        'type' => 'json', // output should be returned in JSON format.
+      ),
+    );
+    
+    $article = intstrux_highwire_request($args);
 
-    if($hw) {
-      // PubMed ID
-      $hw->param('pmid', $article_id);
-      // output should be returned in JSON format.
-      $hw->param('type', 'json');
-      // set cache expiration
-      $hw->parse(variable_get('intstrux_highwire_cache_lifetime', -1));
-
-      $article = $hw ? drupal_json_decode($hw->getContent()) : NULL;
-
-      if (isset($article['atom:entry'])) {
-        cache_set('hw:article:' . $article_id, $article, 'cache_highwire', $_SERVER['REQUEST_TIME'] + variable_get('intstrux_highwire_cache_lifetime', 300));
-        return $article;
-      }
+    if($article && isset($article['atom:entry'])) {
+      cache_set('hw:article:' . $by . ':' . $article_id, $article, 'cache_highwire', $_SERVER['REQUEST_TIME'] + variable_get('intstrux_highwire_cache_lifetime', 300));
+      return $article;
     }
   }
   return FALSE;
@@ -176,25 +149,373 @@ function intstrux_highwire_article_content_load($article_id, $view = 'abstract',
   if ($cache && $cache->expire > $_SERVER['REQUEST_TIME']) {
     return $cache->data;
   } else {
-    if($article = intstrux_highwire_article_load($article_id)) {
+    $by = (is_numeric($article_id))? 'pmid' : 'doi';
+    if($article = intstrux_highwire_article_load($article_id, $by)) {
       if($article_url = intstrux_highwire_parse_link($article['atom:entry'], $view, $type)){
-        $hw = intstrux_highwire_initialize($article_url);
-
-        if($hw) {
-          // set cache expiration
-          $hw->parse(variable_get('intstrux_highwire_cache_lifetime', -1));
-          // view content
-          if($content = $hw->getContent()) {
-            cache_set("hw:article:{$view}:{$type}:" . $article_id, $content, 'cache_highwire', $_SERVER['REQUEST_TIME'] + variable_get('intstrux_highwire_cache_lifetime', 300));
-            return $content;
-          }
-        }
+        if($content = intstrux_highwire_request(array('url' => $article_url))) {
+          cache_set("hw:article:{$view}:{$type}:" . $article_id, $content, 'cache_highwire', $_SERVER['REQUEST_TIME'] + variable_get('intstrux_highwire_cache_lifetime', 300));
+          return $content;  
+        }       
       } else {
         return t('No !view content with this article', array('!view' => $view));
       }
     }
   }
   return FALSE;
+}
+
+function intstrux_highwire_article_content_load_by_entry($entry, $view = 'abstract', $type = 'html') {
+  if($atom_id = intstrux_highwire_parse_id($entry)) {
+    $cache = cache_get("hw:article:{$view}:{$type}:" . $atom_id, 'cache_highwire');
+    if ($cache && $cache->expire > $_SERVER['REQUEST_TIME']) {
+      return $cache->data;
+    } else {
+      if($article_url = intstrux_highwire_parse_link($entry, $view, $type)){
+        if($content = intstrux_highwire_request(array('url' => $article_url))) {
+          cache_set("hw:article:{$view}:{$type}:" . $atom_id, $content, 'cache_highwire', $_SERVER['REQUEST_TIME'] + variable_get('intstrux_highwire_cache_lifetime', 300));
+          return $content; 
+        }   
+      }  
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * Parse a field value in form of "title [id:123]" and return 123
+ *
+ * @param $id
+ *   Article PMID or DOI in form of "title [id:123]".
+ * @return
+ *   Int value of the PMID or DOI or NULL if not found.
+ */
+function intstrux_highwire_parse_identifier($id) {
+  preg_match('/\[doi:([^\[]*)\]$/', $id, $matches);
+  if (count($matches) == 2) {
+    return $matches[1];
+  }
+  preg_match('/\[pmid:([^\[]*)\]$/', $id, $matches);
+  if (count($matches) == 2) {
+    return $matches[1];
+  }
+  return NULL;
+}
+
+/**
+ * Parse Atom ID
+ *
+ * @param $entry
+ *   Article array entry.
+ * @return
+ *   Int value of the atom:id or NULL if not found.
+ */
+function intstrux_highwire_parse_id($entry) {
+  if(isset($entry['atom:id'])) {
+    $atom_id = $entry['atom:id']['$'];
+    return $atom_id;
+  } 
+  return NULL; 
+}
+
+/**
+ * Parse PubMed ID
+ *
+ * @param $entry
+ *   Article array entry.
+ * @return
+ *   Int value of the pmid or NULL if not found.
+ */
+function intstrux_highwire_parse_pmid($entry) {
+  if(isset($entry['nlm:article-id'])) {
+    foreach($entry['nlm:article-id'] as $articleId) {
+      if($articleId['@pub-id-type'] == 'pmid') {
+        $pmid = $articleId['$'];
+        return $pmid;
+      }
+    }
+  }
+  
+  if(isset($entry['nlm:pub-id'])) {
+    foreach($entry['nlm:pub-id'] as $articleId) {
+      if($articleId['@pub-id-type'] == 'pmid') {
+        $pmid = $articleId['$'];
+        return $pmid;
+      }
+    }
+  }
+  
+  return NULL;
+}
+
+/**
+ * Parse DOI:
+ *
+ * @param $entry
+ *   Article array entry.
+ * @return
+ *   Int value of the doi or NULL if not found.
+ */
+function intstrux_highwire_parse_doi($entry) {
+  if(isset($entry['nlm:article-id'])) {
+    foreach($entry['nlm:article-id'] as $articleId) {
+      if($articleId['@pub-id-type'] == 'doi') {
+        $doi = $articleId['$'];
+        return $doi;
+      }
+    }
+  }
+  return NULL;
+}
+
+/**
+ * Parse Title:
+ *
+ * @param $entry
+ *   Article array entry.
+ * @return
+ *   String value of article title or NULL if not found.
+ */
+function intstrux_highwire_parse_title($entry) {
+  if(isset($entry['atom:title'])) {
+    $title = check_plain($entry['atom:title']['$']);
+    
+    if(empty($title)) {
+      if(isset($entry['nlm:title-group']) && isset($entry['nlm:title-group']['nlm:article-title'])) {  
+        if(is_array($entry['nlm:title-group']['nlm:article-title']['$'])) {
+          $title = check_plain(implode(' ', $entry['nlm:title-group']['nlm:article-title']['$']));  
+        } else {
+          $title = check_plain($entry['nlm:title-group']['nlm:article-title']['$']);  
+        }
+      }
+    }
+    
+    return $title;
+  }  
+  return NULL;  
+}
+
+/**
+ * Parse atom:link
+ *
+ * @param $entry
+ *   Article array entry.
+ * @param $view
+ *   Link view: precis, abstract, full
+ * @param $type
+ *   Link file type: html, xml, pdf
+ * @return
+ *   String value of atom:link or NULL if not found.
+ */
+function intstrux_highwire_parse_link($entry, $view, $type) {
+  if(isset($entry['atom:link'])) {  
+    foreach($entry['atom:link'] as $link) {
+      if(strstr($link['@href'], "$view.$type") == "$view.$type") {
+        return $link['@href'];
+      }
+    }
+  }
+  return NULL;
+}
+
+/**
+ * Parse nlm:fpage
+ * 
+ * @param $entry
+ *   Article array entry.
+ * @return
+ *   int numarical value
+ */
+function intstrux_highwire_parse_page($entry) {
+  if(isset($entry['nlm:fpage'])) {
+    $page = (isset($entry['nlm:fpage']['$']))? $entry['nlm:fpage']['$'] : 0;
+    return (int)$page;  
+  }
+  return NULL;
+}
+
+/**
+ * Parse nlm:pub-date
+ * 
+ * @param $entry
+ *   Article array entry.
+ * @return
+ *   array of month and year
+ */
+function intstrux_highwire_parse_date($entry) {
+  if(isset($entry['nlm:pub-date'])) {
+    foreach($entry['nlm:pub-date'] as $pubdate) {
+      if($pubdate['@pub-type'] == 'ppub') {
+        $date = $pubdate;
+        return $date;
+      }
+    }
+  }
+  return NULL;
+}
+
+/**
+ * Parse nlm:month
+ * 
+ * @param $entry
+ *   Article array entry.
+ * @return
+ *   int numarical value
+ */
+function intstrux_highwire_parse_month($entry) {
+  if(isset($entry['nlm:pub-date'])) {
+    $date = intstrux_highwire_parse_date($entry);
+    $month = (isset($date['nlm:month']['$']))? $date['nlm:month']['$'] : 0;
+    return (int)$month;
+  }
+  return NULL;
+}
+
+/**
+ * Parse nlm:year
+ * 
+ * @param $entry
+ *   Article array entry.
+ * @return
+ *   int numarical value
+ */
+function intstrux_highwire_parse_year($entry) {
+  if(isset($entry['nlm:pub-date'])) {
+    $date = intstrux_highwire_parse_date($entry);
+    $year = (isset($date['nlm:year']['$']))? $date['nlm:year']['$'] : 0;
+    return (int)$year;
+  }
+  return NULL;
+}
+
+function intstrux_highwire_parse_published($entry) {
+  if(isset($entry['atom:published'])) {
+    $date = $entry['atom:published']['$'];
+    return $date;
+  }
+  return NULL;
+}
+
+function intstrux_highwire_parse_updated($entry) {
+  if(isset($entry['atom:updated'])) {
+    $date = $entry['atom:updated']['$'];
+    return $date;
+  }
+  return NULL;
+}
+
+function intstrux_highwire_parse_edited($entry) {
+  if(isset($entry['app:edited'])) {
+    $date = $entry['atom:edited']['$'];
+    return $date;
+  }
+  return NULL;
+}
+
+/**
+ * Parse nlm:volume-id
+ * 
+ * @param $entry
+ *   Article array entry.
+ * @return
+ *   unknown volume id
+ */
+function intstrux_highwire_parse_volume_id($entry) {
+  if(isset($entry['nlm:volume-id'])) {
+    $volume_id = (isset($entry['nlm:volume-id'][0]))? $entry['nlm:volume-id'][0]['$'] : 0;
+    return $volume_id;
+  }
+  return NULL;
+}
+
+/**
+ * Parse nlm:issue-id
+ * 
+ * @param $entry
+ *   Article array entry.
+ * @return
+ *   unknown issue id
+ */
+function intstrux_highwire_parse_issue_id($entry) {
+  if(isset($entry['nlm:issue-id'])) {
+    $issue_id = 0;
+    if(isset($entry['nlm:issue-id'][2]) && is_numeric($entry['nlm:issue-id'][2]['$'])) {
+      $issue_id = $entry['nlm:issue-id'][2]['$'];
+    } elseif(isset($entry['nlm:issue-id'][1])) {
+      $issue_id = $entry['nlm:issue-id'][1]['$'];  
+    } else {
+      $issue_id = $entry['nlm:issue-id'][0]['$'];
+    }
+    return $issue_id;
+  }
+  return NULL;
+}
+
+/**
+ * Parse atom:author and atom:contributor
+ * 
+ * @param $entry
+ *   Article array entry.
+ * @return
+ *   array of author and contributors
+ */
+function intstrux_highwire_parse_authors($entry) {
+  
+  $authors = array();
+    
+  if(isset($entry['atom:author'])) {
+    $authors[] = check_plain($entry['atom:author']['atom:name']['$']);        
+  }
+  
+  if(isset($entry['atom:contributor'])) {
+    if(isset($entry['atom:contributor'][0])) {
+      foreach($entry['atom:contributor'] as $contributor) {
+        $authors[] = check_plain($contributor['atom:name']['$']);
+      }
+    } else {
+      $authors[] = check_plain($entry['atom:contributor']['atom:name']['$']);
+    }
+  }
+  
+  return ($authors)? $authors : NULL;
+}
+
+function intstrux_highwire_parse_categories($entry) {
+  if(isset($entry['nlm:article-categories'])) {
+    if(isset($entry['nlm:article-categories']['nlm:subj-group'])) {
+      if(isset($entry['nlm:article-categories']['nlm:subj-group']['nlm:subject'])) {
+        $subject = $entry['nlm:article-categories']['nlm:subj-group']['nlm:subject']['$'];
+        return $subject;
+      }  
+    }
+  }
+  return NULL;
+}
+
+/**
+ * Parse content
+ */
+function intstrux_highwire_parse_content($element, $attr, $value, $content) {
+  $tag_regex = '/<'.$element.'[^>]*';
+  
+  if(!empty($attr) && !empty($value)) {
+    $attr = preg_quote($attr);
+    $value = preg_quote($value);
+    $tag_regex .= $attr.'="'.$value.'"';
+  }
+      
+  $tag_regex .= '>(.*?)<\\/'.$element.'>/si';
+
+  preg_match($tag_regex, $content, $matches);
+  return $matches[1];
+}
+
+/**
+ * Remove tag
+ */
+function intstrux_highwire_remove_tag($element, $attr, $value, $content) {
+  $attr = preg_quote($attr);
+  $value = preg_quote($value);
+  return preg_replace('!<'.$element.'\s+'.$attr.'="'.$value.'">.*?</'.$element.'>!is', '', $content);
 }
 
 /**
@@ -232,81 +553,4 @@ function intstrux_highwire_fields_list() {
   }
   
   return $rows;
-}
-
-/**
- * Parse a field value in form of "title [id:123]" and return 123
- *
- * @param $id
- *   Video ID in form of "title [id:123]".
- * @return
- *   Int value of the ID or NULL if not found.
- */
-function intstrux_highwire_parse_id($id) {
-  preg_match('/\[id:([^\[]*)\]$/', $id, $matches);
-  if (count($matches) == 2) {
-    return $matches[1];
-  }
-  return NULL;
-}
-
-/**
- * Parse PubMed ID
- *
- * @param $entry
- *   Article array entry.
- * @return
- *   Int value of the pmid or NULL if not found.
- */
-function intstrux_highwire_parse_pmid($entry) {
-  foreach($entry['nlm:article-id'] as $articleId) {
-    if($articleId['@pub-id-type'] == 'pmid') {
-      $pmid = $articleId['$'];
-      return $pmid;
-    }
-  }
-  return NULL;
-}
-
-/**
- * Parse atom:link
- *
- * @param $entry
- *   Article array entry.
- * @param $view
- *   Link view: precis, abstract, full
- * @param $type
- *   Link file type: html, xml, pdf
- * @return
- *   String value of atom:link or NULL if not found.
- */
-function intstrux_highwire_parse_link($entry, $view, $type) {
-  foreach($entry['atom:link'] as $link) {
-    if(strstr($link['@href'], "$view.$type") == "$view.$type") {
-      return $link['@href'];
-    }
-  }
-  return NULL;
-}
-
-/**
- * Parse content
- */
-function intstrux_highwire_parse_content($element, $attr, $value, $content) {
-  $attr = preg_quote($attr);
-  $value = preg_quote($value);
-
-  $tag_regex = '/<'.$element.'[^>]*'.$attr.'="'.$value.'">(.*?)<\\/'.$element.'>/si';
-
-  preg_match($tag_regex, $content, $matches);
-  return $matches[1];
-}
-
-/**
- * Remove tag
- */
-function intstrux_highwire_remove_tag($element, $attr, $value, $content) {
-  $attr = preg_quote($attr);
-  $value = preg_quote($value);
-  return preg_replace('!<'.$element.'\s+'.$attr.'="'.$value.'">.*?</'.$element.'>!is', '', $content);
 }
